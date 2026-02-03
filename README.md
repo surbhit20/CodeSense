@@ -47,7 +47,7 @@ The app uses a Retrieval-Augmented Generation (RAG) system to create a tree-like
 1. **Clone the repository**
    ```bash
    git clone <repository-url>
-   cd codesense-main
+   cd CodeSense
    ```
 
 2. **Install dependencies**
