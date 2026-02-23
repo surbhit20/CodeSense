@@ -1,13 +1,13 @@
 from openai import OpenAI
-from dotenv import load_dotenv
+import streamlit as st
 import src.prompt as prompts
 import json
+from pathlib import Path
 
-load_dotenv(override=True)
 
 class LLM():
     def __init__(self, codeTree, model_name='gpt-5'):
-        self.model = OpenAI()
+        self.model = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
         self.model_name = model_name
 
         self.messages = []
@@ -16,8 +16,9 @@ class LLM():
         self._append('system', 
                      prompts.SYSTEM_PROMPT.format(REPO_TREE=self.codeTree.repoTree))
         
-        f = open('src/tools.json', 'r')
-        self.tools = json.load(f)
+        tools_path = Path(__file__).parent / 'tools.json'
+        with open(tools_path, 'r') as f:
+            self.tools = json.load(f)
 
     def call(self, prompt=None, filepath=None, tool_choice='auto'):
 
