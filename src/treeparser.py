@@ -5,6 +5,12 @@ from streamlit_flow.elements import StreamlitFlowNode, StreamlitFlowEdge
 import mimetypes
 import json
 
+try:
+    from src.scanner import scan_directory as _cpp_scan
+    _HAS_CPP_SCANNER = True
+except Exception:
+    _HAS_CPP_SCANNER = False
+
 class Tree():
     def __init__(self, root='root'):
         self.root = Path(root)
@@ -66,7 +72,15 @@ class Tree():
 
     def _getData(self):
         self.content = dict()
-        for file in self.files:
+
+        # Use C++ scanner for fast file enumeration when available
+        if _HAS_CPP_SCANNER:
+            all_paths, _ = _cpp_scan(str(self.root))
+            candidate_files = [Path(p) for p in all_paths if os.path.isfile(p)]
+        else:
+            candidate_files = self.files
+
+        for file in candidate_files:
             mime_type, _ = mimetypes.guess_type(file)
             if mime_type is None and str(file).endswith('.ipynb'):
                 mime_type = 'application/json'
@@ -81,7 +95,7 @@ class Tree():
                         self.content[str(file)] = file_content
                 else:
                     print(f'Skipping {file} {mime_type}')
-            except Exception as e:
+            except Exception:
                 pass
 
     
