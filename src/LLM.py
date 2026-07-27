@@ -1,5 +1,5 @@
 from openai import OpenAI
-import streamlit as st
+import os
 import src.prompt as prompts
 import json
 from pathlib import Path
@@ -7,7 +7,7 @@ from pathlib import Path
 
 class LLM():
     def __init__(self, codeTree, model_name='gpt-5'):
-        self.model = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+        self.model = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
         self.model_name = model_name
 
         self.messages = []

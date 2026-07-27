@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #1a1a1a; overflow: hidden; font-family: sans-serif; }
+    #graph { width: 100vw; height: 100vh; }
+    #hint {
+      position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%);
+      background: rgba(0,0,0,0.6); color: #aaa; font-size: 11px;
+      padding: 4px 10px; border-radius: 4px; pointer-events: none;
+    }
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.9/standalone/umd/vis-network.min.js"></script>
+</head>
+<body>
+  <div id="graph"></div>
+  <div id="hint">Click a file node to analyze it</div>
+  <script>
+    let network = null;
+
+    window.addEventListener('message', (e) => {
+      if (e.data?.type !== 'initGraph') return;
+      const { nodes, edges } = e.data;
+
+      const visNodes = new vis.DataSet(nodes.map(n => ({
+        id: n.id,
+        label: n.label,
+        title: n.title,
+        group: n.group,
+        color: n.group === 'file'
+          ? { background: '#4f9cff', border: '#2176d9', highlight: { background: '#76b5ff', border: '#4f9cff' } }
+          : { background: '#2d2d2d', border: '#555', highlight: { background: '#3a3a3a', border: '#888' } },
+        font: { color: '#eee', size: 13, face: 'monospace' },
+        shape: n.group === 'file' ? 'box' : 'dot',
+        size: n.group === 'file' ? undefined : 8,
+        borderWidth: 1,
+      })));
+
+      const visEdges = new vis.DataSet(edges.map(e => ({
+        from: e.from,
+        to: e.to,
+        color: { color: '#444', highlight: '#777', opacity: 0.8 },
+        arrows: { to: { enabled: true, scaleFactor: 0.5 } },
+        smooth: { type: 'cubicBezier', forceDirection: 'horizontal', roundness: 0.4 },
+        width: 1,
+      })));
+
+      const options = {
+        layout: {
+          hierarchical: {
+            enabled: true,
+            direction: 'LR',
+            sortMethod: 'directed',
+            nodeSpacing: 80,
+            levelSeparation: 200,
+            treeSpacing: 100,
+          },
+        },
+        physics: false,
+        interaction: {
+          hover: true,
+          tooltipDelay: 300,
+          zoomView: true,
+          dragView: true,
+        },
+        nodes: { borderWidthSelected: 2 },
+        edges: { selectionWidth: 2 },
+      };
+
+      if (network) network.destroy();
+      network = new vis.Network(
+        document.getElementById('graph'),
+        { nodes: visNodes, edges: visEdges },
+        options
+      );
+
+      network.on('click', (params) => {
+        if (!params.nodes.length) return;
+        const nodeId = params.nodes[0];
+        const node = visNodes.get(nodeId);
+        if (node?.group === 'file') {
+          window.parent.postMessage({ type: 'nodeClick', id: nodeId }, '*');
+        }
+      });
+
+      // Fit the view after render
+      network.once('afterDrawing', () => network.fit({ animation: { duration: 500, easingFunction: 'easeInOutQuad' } }));
+    });
+  </script>
+</body>
+</html>

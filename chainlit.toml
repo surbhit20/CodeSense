@@ -1,0 +1,8 @@
+[project]
+enable_telemetry = false
+
+[UI]
+name = "CodeSense"
+description = "AI-powered GitHub repository navigator."
+default_collapse_content = false
+custom_js = "/public/custom.js"

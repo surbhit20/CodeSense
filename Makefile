@@ -11,6 +11,6 @@ build:
 clean:
 	rm -f src/libscanner.so src/__pycache__/*.pyc
 
-# Run the Streamlit app (build scanner first for best performance)
+# Run the Chainlit app (build scanner first for best performance)
 run: build
-	streamlit run app.py
+	chainlit run app.py --watch

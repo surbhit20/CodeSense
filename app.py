@@ -1,102 +1,130 @@
-from streamlit_flow import streamlit_flow
+import os
+import json
+import asyncio
+from dotenv import load_dotenv
+load_dotenv()
+
+import chainlit as cl
 from src.treeparser import Tree
-from streamlit_flow.state import StreamlitFlowState
-from streamlit_flow.layouts import ForceLayout, RadialLayout, TreeLayout, LayeredLayout, StressLayout
-import streamlit as st
 from src.LLM import LLM
 from src.utils import clone
-import os
 
-st.set_page_config("CodeSense", 
-                   page_icon='assets/favicon.png',
-                   layout="wide")
-
-st.image('assets/logo.png', width=250)
-
-@st.dialog("Input you link")
-def getLink():
-    repoUrl = st.text_input("GitHub Repository URL")
-    if st.button("Submit"):
-        if clone(repoUrl):
-            st.session_state.repository = repoUrl
-            st.rerun()
-        else:
-            st.error("Invalid Git URL.")
+SAMPLE_REPO_URL = "https://github.com/surbhit20/CodeSense.git"
+CLONE_DIR = "/tmp/codesense-repo"
 
 
-if 'repository' not in st.session_state:
-    getLink()
+async def render_tree(code_tree: Tree):
+    graph_data = code_tree.get_graph_data()
+    await cl.send_window_message({"type": "initGraph", **graph_data})
+    files = list(code_tree.content.keys())
+    actions = [
+        cl.Action(name="analyze_file", payload={"filepath": f}, label=f.replace(CLONE_DIR + "/", ""))
+        for f in files[:25]
+    ]
+    if actions:
+        await cl.Message(
+            content="Graph loaded. Click a node in the panel, or use the buttons below:",
+            actions=actions,
+        ).send()
 
-else:
-    if 'codeTree' not in st.session_state:
-        # clone(st.session_state.repository)
-        st.session_state.codeTree = Tree('root')
-        st.session_state.state = StreamlitFlowState(st.session_state.codeTree.nodes, 
-                                                    st.session_state.codeTree.edges)
 
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
-        st.session_state.model = LLM(
-            codeTree=st.session_state.codeTree)
+@cl.on_chat_start
+async def on_chat_start():
+    try:
+        await _on_chat_start()
+    except Exception as e:
+        import traceback
+        await cl.Message(content=f"Startup error: {e}\n```\n{traceback.format_exc()}\n```").send()
 
-    if "node" not in st.session_state:
-        st.session_state.node = None
+async def _on_chat_start():
+    res = await cl.AskUserMessage(
+        content=(
+            "**Welcome to CodeSense!** Navigate any GitHub repository with AI.\n\n"
+            "Enter a GitHub URL — or type **`sample`** to try it on CodeSense itself:"
+        ),
+        timeout=300,
+    ).send()
 
-    # col1, col2 = st.columns(2)
-    tab1, tab2 = st.tabs(["Code Map", "Chat"])
-    
+    if not res:
+        await cl.Message(content="Timed out. Refresh to restart.").send()
+        return
 
-    # with col1:
-    with tab1:
-        updated_state = streamlit_flow('codebase', 
-                        st.session_state.state, 
-                        layout=TreeLayout(
-                            direction='right',
-                            node_node_spacing=40,
-                            # node_layer_spacing=20
-                        ), 
-                        fit_view=True, 
-                        height=680, 
-                        enable_node_menu=False,
-                        show_controls=True,
-                        enable_edge_menu=False,
-                        enable_pane_menu=False,
-                        get_edge_on_click=True,
-                        get_node_on_click=True, 
-                        hide_watermark=True, 
-                        allow_new_edges=False,
-                        pan_on_drag=True,
-                        allow_zoom=True,
-                        min_zoom=0.5)
-        
-        if st.session_state.node!=updated_state.selected_id and updated_state.selected_id and os.path.isfile(updated_state.selected_id):
+    url = res["output"].strip()
+    repo_url = SAMPLE_REPO_URL if url.lower() == "sample" else url
 
-            st.session_state.node = updated_state.selected_id
-            
-            st.session_state.messages = []
-            st.session_state.model = LLM(
-            codeTree=st.session_state.codeTree)
+    status_msg = await cl.Message(content=f"Cloning `{repo_url}`...").send()
+    success = await asyncio.to_thread(clone, repo_url, CLONE_DIR)
+    if not success:
+        await cl.Message(content="Failed to clone. Check the URL and try again.").send()
+        return
 
-            user_message = f"Fetch {st.session_state.node}..."
-            st.session_state.messages.append({"role": "user", "content": user_message})
+    status_msg.content = f"Successfully cloned `{repo_url}`."
+    await status_msg.update()
 
-            response = st.session_state.model.call(filepath=st.session_state.node)
-            
-            st.session_state.messages.append({"role": "assistant", "content": response})
+    code_tree = Tree(CLONE_DIR)
+    model = LLM(codeTree=code_tree)
+    cl.user_session.set("codeTree", code_tree)
+    cl.user_session.set("model", model)
+    cl.user_session.set("node", None)
 
-    # with col2:
-    with tab2:
-        messages = st.container(height=600)
-        for message in st.session_state.messages:
-            with messages.chat_message(message["role"]):
-                st.markdown(message["content"])
-        
-        if prompt := st.chat_input("Say something"):
+    await render_tree(code_tree)
+    await cl.Message(
+        content="Click a file above to analyze it, or ask me anything about the codebase."
+    ).send()
 
-            messages.chat_message("user").markdown(prompt)
-            st.session_state.messages.append({"role": "user", "content": prompt})
 
-            response = st.session_state.model.call(prompt=prompt)
+@cl.action_callback("analyze_file")
+async def on_file_analyze(action: cl.Action):
+    filepath = action.payload["filepath"]
+    code_tree = cl.user_session.get("codeTree")
+    if not os.path.isfile(filepath):
+        await cl.Message(content=f"Could not find `{filepath}` on disk.").send()
+        return
 
-            messages.chat_message("assistant").markdown(response)
-            st.session_state.messages.append({"role": "assistant", "content": response})
+    model = LLM(codeTree=code_tree)
+    cl.user_session.set("model", model)
+    cl.user_session.set("node", filepath)
+
+    async with cl.Step(name=f"Analyzing {filepath.replace(CLONE_DIR + "/", "")}", type="tool") as step:
+        step.input = filepath
+        response = await asyncio.to_thread(model.call, filepath=filepath)
+        step.output = response
+
+    await cl.Message(content=response).send()
+
+
+@cl.on_window_message
+async def on_window_message(message: str):
+    try:
+        data = json.loads(message) if isinstance(message, str) else message
+    except (json.JSONDecodeError, TypeError):
+        return
+    if data.get("type") != "nodeClick":
+        return
+    filepath = data.get("id", "")
+    code_tree = cl.user_session.get("codeTree")
+    if not code_tree or not os.path.isfile(filepath):
+        return
+    model = LLM(codeTree=code_tree)
+    cl.user_session.set("model", model)
+    cl.user_session.set("node", filepath)
+    async with cl.Step(name=f"Analyzing {filepath.replace(CLONE_DIR + "/", "")}", type="tool") as step:
+        step.input = filepath
+        response = await asyncio.to_thread(model.call, filepath=filepath)
+        step.output = response
+    await cl.Message(content=response).send()
+
+
+@cl.on_message
+async def on_message(message: cl.Message):
+    model = cl.user_session.get("model")
+    if model is None:
+        await cl.Message(content="No repository loaded. Please restart the chat.").send()
+        return
+
+    async with cl.Step(name="CodeSense", type="llm") as step:
+        step.input = message.content
+        response = await asyncio.to_thread(model.call, prompt=message.content)
+        step.output = response
+
+    await cl.Message(content=response).send()
