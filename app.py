@@ -12,6 +12,13 @@ from src.utils import clone
 SAMPLE_REPO_URL = "https://github.com/surbhit20/CodeSense.git"
 CLONE_DIR = "/tmp/codesense-repo"
 
+FAQ_QUESTIONS = [
+    "What is this repo about?",
+    "What's the overall architecture?",
+    "How do I run this project?",
+    "What are the main dependencies?",
+]
+
 
 async def render_tree(code_tree: Tree):
     graph_data = code_tree.get_graph_data()
@@ -68,9 +75,69 @@ async def _on_chat_start():
     cl.user_session.set("node", None)
 
     await render_tree(code_tree)
+    faq_actions = [
+        cl.Action(name="ask_question", payload={"question": q}, label=q)
+        for q in FAQ_QUESTIONS
+    ]
     await cl.Message(
-        content="Click a file above to analyze it, or ask me anything about the codebase."
+        content="Click a file above to analyze it, ask me anything, or try one of these:",
+        actions=faq_actions,
     ).send()
+
+
+async def stream_reply(model: LLM, step_name: str, step_type: str, *, filepath=None, prompt=None):
+    """Streams the LLM's response into a live message, wrapped in a Step
+    for the tool-call trace. Guarded by a per-session busy flag so a second
+    request can't run concurrently against the same model/message history."""
+    if cl.user_session.get("busy"):
+        return
+
+    cl.user_session.set("busy", True)
+    await cl.send_window_message({"type": "setBusy", "busy": True})
+    try:
+        async with cl.Step(name=step_name, type=step_type) as step:
+            step.input = filepath or prompt
+            await step.update()
+
+            # The first completion call often just decides to call the
+            # retriever tool and streams no visible content — without this,
+            # the message sits blank for that whole round trip. Its text
+            # doubles as a live "what is it doing right now" indicator,
+            # updated as each file is fetched.
+            thinking = cl.Message(content="Thinking…")
+            await thinking.send()
+
+            msg = cl.Message(content="")
+            first_token = True
+            async for kind, payload in model.call_stream(filepath=filepath, prompt=prompt):
+                if kind == 'tool_call':
+                    short_name = payload.replace(CLONE_DIR + '/', '')
+                    if first_token:
+                        thinking.content = f"Reading `{short_name}`…"
+                        await thinking.update()
+                    # A nested step under the parent — this is what makes the
+                    # chain of thought visible: expanding the parent later
+                    # shows the sequence of files it read, not just the
+                    # final input/output.
+                    async with cl.Step(name=f"Reading {short_name}", type="tool") as tool_step:
+                        tool_step.output = "Fetched"
+                    continue
+
+                if first_token:
+                    await thinking.remove()
+                    await msg.send()
+                    first_token = False
+                await msg.stream_token(payload)
+
+            if first_token:
+                await thinking.remove()
+                await msg.send()
+
+            await msg.update()
+            step.output = msg.content
+    finally:
+        cl.user_session.set("busy", False)
+        await cl.send_window_message({"type": "setBusy", "busy": False})
 
 
 @cl.action_callback("analyze_file")
@@ -85,12 +152,8 @@ async def on_file_analyze(action: cl.Action):
     cl.user_session.set("model", model)
     cl.user_session.set("node", filepath)
 
-    async with cl.Step(name=f"Analyzing {filepath.replace(CLONE_DIR + "/", "")}", type="tool") as step:
-        step.input = filepath
-        response = await asyncio.to_thread(model.call, filepath=filepath)
-        step.output = response
-
-    await cl.Message(content=response).send()
+    name = filepath.replace(CLONE_DIR + "/", "")
+    await stream_reply(model, f"Analyzing {name}", "tool", filepath=filepath)
 
 
 @cl.on_window_message
@@ -105,14 +168,24 @@ async def on_window_message(message: str):
     code_tree = cl.user_session.get("codeTree")
     if not code_tree or not os.path.isfile(filepath):
         return
+
     model = LLM(codeTree=code_tree)
     cl.user_session.set("model", model)
     cl.user_session.set("node", filepath)
-    async with cl.Step(name=f"Analyzing {filepath.replace(CLONE_DIR + "/", "")}", type="tool") as step:
-        step.input = filepath
-        response = await asyncio.to_thread(model.call, filepath=filepath)
-        step.output = response
-    await cl.Message(content=response).send()
+
+    name = filepath.replace(CLONE_DIR + "/", "")
+    await stream_reply(model, f"Analyzing {name}", "tool", filepath=filepath)
+
+
+@cl.action_callback("ask_question")
+async def on_ask_question(action: cl.Action):
+    question = action.payload["question"]
+    model = cl.user_session.get("model")
+    if model is None:
+        await cl.Message(content="No repository loaded. Please restart the chat.").send()
+        return
+
+    await stream_reply(model, question, "llm", prompt=question)
 
 
 @cl.on_message
@@ -122,9 +195,4 @@ async def on_message(message: cl.Message):
         await cl.Message(content="No repository loaded. Please restart the chat.").send()
         return
 
-    async with cl.Step(name="CodeSense", type="llm") as step:
-        step.input = message.content
-        response = await asyncio.to_thread(model.call, prompt=message.content)
-        step.output = response
-
-    await cl.Message(content=response).send()
+    await stream_reply(model, "CodeSense", "llm", prompt=message.content)

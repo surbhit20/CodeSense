@@ -5,52 +5,266 @@
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: #1a1a1a; overflow: hidden; font-family: sans-serif; }
-    #graph { width: 100vw; height: 100vh; }
+    #graph { width: 100vw; height: 100vh; transition: opacity 0.15s ease; }
+    #graph.busy { opacity: 0.5; pointer-events: none; }
     #hint {
-      position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%);
-      background: rgba(0,0,0,0.6); color: #aaa; font-size: 11px;
-      padding: 4px 10px; border-radius: 4px; pointer-events: none;
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      display: flex; flex-direction: column; align-items: center; gap: 10px;
+      color: #6b7280; font-size: 13px; text-align: center;
+      pointer-events: none; transition: opacity 0.2s ease;
+    }
+    #hint.hidden { opacity: 0; }
+    #hint svg { opacity: 0.6; }
+
+    #controls {
+      position: absolute; top: 12px; right: 12px;
+      display: flex; flex-direction: column; gap: 4px;
+      z-index: 10;
+    }
+    #controls button {
+      width: 26px; height: 26px;
+      background: #24272d; border: 1px solid #3a3f47; border-radius: 5px;
+      color: #aab0ba; font-size: 14px; line-height: 1;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      transition: background-color 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+    }
+    #controls button:hover {
+      background: hsl(217.2 91.2% 59.8% / 0.16);
+      border-color: hsl(217.2 91.2% 59.8% / 0.6);
+      color: #eaf1ff;
     }
   </style>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.9/standalone/umd/vis-network.min.js"></script>
 </head>
 <body>
   <div id="graph"></div>
-  <div id="hint">Click a file node to analyze it</div>
+  <div id="hint">
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+      <path d="M9 3v4a1 1 0 0 1-1 1H4" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M9 3h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9M9 3L4 8v11a2 2 0 0 0 2 2h5" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M13 13h4M13 17h4" stroke-linecap="round"/>
+    </svg>
+    <span>Click a folder to expand it, or a file to analyze it</span>
+  </div>
+  <div id="controls">
+    <button id="zoomIn" title="Zoom in">+</button>
+    <button id="zoomOut" title="Zoom out">−</button>
+    <button id="zoomReset" title="Fit to view">⤢</button>
+  </div>
   <script>
     let network = null;
+    let busy = false;
+
+    // Full dataset from Python, keyed by id — the source of truth for
+    // what *could* be shown. allNodes/allEdges (the vis DataSets) hold only
+    // what's currently visible.
+    let nodeById = new Map();
+    let childrenOf = new Map();
+    let expandedDirs = new Set();
+
+    let allNodes = new vis.DataSet([]);
+    let allEdges = new vis.DataSet([]);
+
+    const DIR_COLLAPSED = {
+      background: '#333a44', border: 'hsl(217.2 91.2% 59.8% / 0.55)',
+      highlight: { background: '#3a4250', border: 'hsl(217.2 91.2% 59.8%)' },
+      hover: { background: '#383f4a', border: 'hsl(217.2 91.2% 59.8% / 0.75)' },
+    };
+    const DIR_EXPANDED = {
+      background: '#262b33', border: 'hsl(217.2 91.2% 59.8% / 0.3)',
+      highlight: { background: '#3a4250', border: 'hsl(217.2 91.2% 59.8%)' },
+      hover: { background: '#2e3440', border: 'hsl(217.2 91.2% 59.8% / 0.5)' },
+    };
+    const FILE_COLOR = {
+      background: '#20242b', border: 'hsl(217.2 91.2% 59.8% / 0.22)',
+      highlight: { background: '#3b82f6', border: '#dbeafe' },
+      hover: { background: '#262b33', border: 'hsl(217.2 91.2% 59.8% / 0.45)' },
+    };
+
+    function dirLabel(node) {
+      const arrow = expandedDirs.has(node.id) ? '▾' : '▸';
+      return `${arrow} ${node.label}`;
+    }
+
+    function toVisNode(node) {
+      const isDir = node.group === 'dir';
+      return {
+        id: node.id,
+        label: isDir ? dirLabel(node) : node.label,
+        title: node.title,
+        group: node.group,
+        color: isDir ? (expandedDirs.has(node.id) ? DIR_EXPANDED : DIR_COLLAPSED) : FILE_COLOR,
+        font: isDir
+          ? { color: '#f2f4f7', size: 15, face: 'monospace', bold: { color: '#f2f4f7' } }
+          : { color: '#aab0ba', size: 12.5, face: 'monospace' },
+        shape: 'box',
+        borderWidth: isDir ? 1.5 : 1,
+        margin: isDir ? 10 : 8,
+      };
+    }
+
+    function edgeSpec(e) {
+      return {
+        id: `${e.from}->${e.to}`,
+        from: e.from,
+        to: e.to,
+        color: { color: '#3a3f47', highlight: '#5a6270', opacity: 0.7 },
+        arrows: { to: { enabled: false } },
+        smooth: { type: 'cubicBezier', forceDirection: 'vertical', roundness: 0.5 },
+        width: 1,
+      };
+    }
+
+    function refreshNode(id) {
+      const node = nodeById.get(id);
+      if (node && allNodes.get(id)) allNodes.update(toVisNode(node));
+    }
+
+    // network.fit() was landing the view off-center on small graphs (its
+    // reported viewPosition after fitting turned out to be the raw canvas
+    // center in pixels, not the node bounding box's center in world space)
+    // — so compute the center/scale ourselves from actual node positions
+    // instead of trusting it.
+    function fitToNodes(animate) {
+      const ids = allNodes.getIds();
+      if (!ids.length || !network) return;
+      const positions = network.getPositions(ids);
+      const xs = Object.values(positions).map(p => p.x);
+      const ys = Object.values(positions).map(p => p.y);
+      const margin = 140;
+      const boxW = Math.max(...xs) - Math.min(...xs) + margin;
+      const boxH = Math.max(...ys) - Math.min(...ys) + margin;
+      const container = document.getElementById('graph');
+      const scale = Math.min(container.clientWidth / boxW, container.clientHeight / boxH, 1.4);
+      // The container can still be mid-layout (0×0) right after the panel's
+      // slide-in transition starts — moveTo() throws on a non-positive
+      // scale, so skip rather than crash; fitWhenReady() below is what
+      // actually waits for a valid size before calling this.
+      if (!isFinite(scale) || scale <= 0) return;
+      const position = {
+        x: (Math.max(...xs) + Math.min(...xs)) / 2,
+        y: (Math.max(...ys) + Math.min(...ys)) / 2,
+      };
+      network.moveTo({
+        position,
+        scale,
+        animation: animate ? { duration: 350, easingFunction: 'easeInOutQuad' } : false,
+      });
+      // moveTo() doesn't emit vis's 'zoom' event (that's wheel/pinch only),
+      // so the label-hide threshold needs a manual nudge here too. For an
+      // animated move, wait for it to land before checking the final scale.
+      if (animate) {
+        setTimeout(applyLabelVisibility, 360);
+      } else {
+        applyLabelVisibility();
+      }
+    }
+
+    // The panel this graph lives in slides in via CSS transform, and the
+    // very first fit can land while that's still settling (container
+    // reports 0×0 for a frame or two). Poll instead of guessing a delay.
+    // setTimeout, not requestAnimationFrame — rAF never fires while the tab
+    // is backgrounded, which would strand this permanently if the panel
+    // gets created while the user is on a different tab.
+    function fitWhenReady(animate, attemptsLeft) {
+      if (attemptsLeft === undefined) attemptsLeft = 40;
+      const container = document.getElementById('graph');
+      if (container.clientWidth > 0 && container.clientHeight > 0) {
+        fitToNodes(animate);
+      } else if (attemptsLeft > 0) {
+        setTimeout(() => fitWhenReady(animate, attemptsLeft - 1), 50);
+      }
+    }
+
+    function showChildren(dirId) {
+      const kids = childrenOf.get(dirId) || [];
+      const nodesToAdd = kids.filter(id => !allNodes.get(id)).map(id => toVisNode(nodeById.get(id)));
+      const edgesToAdd = kids
+        .filter(id => !allEdges.get(`${dirId}->${id}`))
+        .map(id => edgeSpec({ from: dirId, to: id }));
+      if (nodesToAdd.length) allNodes.add(nodesToAdd);
+      if (edgesToAdd.length) allEdges.add(edgesToAdd);
+    }
+
+    function hideDescendants(dirId) {
+      const kids = childrenOf.get(dirId) || [];
+      for (const childId of kids) {
+        const child = nodeById.get(childId);
+        if (child && child.group === 'dir' && expandedDirs.has(childId)) {
+          expandedDirs.delete(childId);
+          hideDescendants(childId);
+        }
+        if (allNodes.get(childId)) allNodes.remove(childId);
+        const edgeId = `${dirId}->${childId}`;
+        if (allEdges.get(edgeId)) allEdges.remove(edgeId);
+      }
+    }
+
+    function toggleDir(dirId) {
+      if (expandedDirs.has(dirId)) {
+        expandedDirs.delete(dirId);
+        hideDescendants(dirId);
+      } else {
+        expandedDirs.add(dirId);
+        showChildren(dirId);
+      }
+      refreshNode(dirId);
+      fitWhenReady(true);
+    }
+
+    // Labels stop being legible under ~6px on screen; rather than let them
+    // render as an unreadable smear, hide them entirely below that zoom and
+    // bring them back once there's room to read them again.
+    let labelsHidden = false;
+    const LABEL_HIDE_SCALE = 0.45;
+
+    function applyLabelVisibility() {
+      const scale = network.getScale();
+      const shouldHide = scale < LABEL_HIDE_SCALE;
+      if (shouldHide === labelsHidden) return;
+      labelsHidden = shouldHide;
+      const updates = allNodes.get().map(n => {
+        const node = nodeById.get(n.id);
+        const base = toVisNode(node);
+        base.font = { ...base.font, size: shouldHide ? 0 : base.font.size };
+        return base;
+      });
+      if (updates.length) allNodes.update(updates);
+    }
 
     window.addEventListener('message', (e) => {
+      if (e.data?.type === 'setBusy') {
+        busy = !!e.data.busy;
+        document.getElementById('graph').classList.toggle('busy', busy);
+        return;
+      }
+
       if (e.data?.type !== 'initGraph') return;
       const { nodes, edges } = e.data;
 
-      const visNodes = new vis.DataSet(nodes.map(n => ({
-        id: n.id,
-        label: n.label,
-        title: n.title,
-        group: n.group,
-        color: n.group === 'file'
-          ? {
-              background: '#262b33',
-              border: '#3d5a80',
-              highlight: { background: '#3b82f6', border: '#2563eb' },
-              hover: { background: '#2e3844', border: '#4d7aab' },
-            }
-          : { background: '#2d2d2d', border: '#555', highlight: { background: '#3a3a3a', border: '#888' } },
-        font: { color: '#e8eaed', size: 13, face: 'monospace' },
-        shape: n.group === 'file' ? 'box' : 'dot',
-        size: n.group === 'file' ? undefined : 8,
-        borderWidth: 1,
-      })));
+      nodeById = new Map(nodes.map(n => [n.id, n]));
+      childrenOf = new Map();
+      for (const e2 of edges) {
+        if (!childrenOf.has(e2.from)) childrenOf.set(e2.from, []);
+        childrenOf.get(e2.from).push(e2.to);
+      }
+      expandedDirs = new Set();
+      labelsHidden = false;
 
-      const visEdges = new vis.DataSet(edges.map(e => ({
-        from: e.from,
-        to: e.to,
-        color: { color: '#444', highlight: '#777', opacity: 0.8 },
-        arrows: { to: { enabled: true, scaleFactor: 0.5 } },
-        smooth: { type: 'cubicBezier', forceDirection: 'horizontal', roundness: 0.4 },
-        width: 1,
-      })));
+      // Start collapsed to depth 1 (root + its direct children) instead of
+      // dumping the whole tree — a 30-node graph opening at full breadth is
+      // unreadable regardless of layout.
+      const initialIds = nodes.filter(n => (n.depth ?? 0) <= 1).map(n => n.id);
+      allNodes = new vis.DataSet(initialIds.map(id => toVisNode(nodeById.get(id))));
+      const initialEdgeList = [];
+      for (const id of initialIds) {
+        const node = nodeById.get(id);
+        if (node.depth === 0) continue;
+        for (const e2 of edges) {
+          if (e2.to === id && initialIds.includes(e2.from)) initialEdgeList.push(edgeSpec(e2));
+        }
+      }
+      allEdges = new vis.DataSet(initialEdgeList);
 
       const options = {
         layout: {
@@ -58,9 +272,9 @@
             enabled: true,
             direction: 'UD',
             sortMethod: 'directed',
-            nodeSpacing: 90,
-            levelSeparation: 110,
-            treeSpacing: 60,
+            nodeSpacing: 110,
+            levelSeparation: 120,
+            treeSpacing: 70,
           },
         },
         physics: false,
@@ -74,24 +288,55 @@
         edges: { selectionWidth: 2 },
       };
 
+      // A fresh tree (new repo) should show the hint again until a node
+      // in *this* graph gets selected.
+      document.getElementById('hint').classList.remove('hidden');
+
       if (network) network.destroy();
       network = new vis.Network(
         document.getElementById('graph'),
-        { nodes: visNodes, edges: visEdges },
+        { nodes: allNodes, edges: allEdges },
         options
       );
-
       network.on('click', (params) => {
-        if (!params.nodes.length) return;
+        if (busy || !params.nodes.length) return;
         const nodeId = params.nodes[0];
-        const node = visNodes.get(nodeId);
-        if (node?.group === 'file') {
-          window.parent.postMessage({ type: 'nodeClick', id: nodeId }, '*');
+        const node = nodeById.get(nodeId);
+        if (!node) return;
+        if (node.group === 'dir') {
+          toggleDir(nodeId);
+          return;
         }
+        document.getElementById('hint').classList.add('hidden');
+        window.parent.postMessage({ type: 'nodeClick', id: nodeId }, '*');
       });
 
-      // Fit the view after render
-      network.once('afterDrawing', () => network.fit({ animation: { duration: 500, easingFunction: 'easeInOutQuad' } }));
+      network.on('zoom', applyLabelVisibility);
+
+      // No animation here: this runs unattended right after the graph
+      // loads, not in response to a click, so there's no reason to risk
+      // vis's animation stalling if the tab happens to be backgrounded at
+      // that exact moment (its tween loop is itself rAF-driven, which
+      // pauses in hidden tabs same as fitWhenReady's own polling would).
+      fitWhenReady(false);
+    });
+
+    // network only fires its 'zoom' event for user-driven wheel/pinch zoom,
+    // not for programmatic moveTo() — so the label-hide threshold has to be
+    // re-checked by hand after every button-driven zoom too.
+    document.getElementById('zoomIn').addEventListener('click', () => {
+      if (!network) return;
+      network.moveTo({ scale: network.getScale() * 1.3 });
+      applyLabelVisibility();
+    });
+    document.getElementById('zoomOut').addEventListener('click', () => {
+      if (!network) return;
+      network.moveTo({ scale: network.getScale() / 1.3 });
+      applyLabelVisibility();
+    });
+    document.getElementById('zoomReset').addEventListener('click', () => {
+      if (!network) return;
+      fitToNodes(true); // handles its own label-visibility recheck
     });
   </script>
 </body>
