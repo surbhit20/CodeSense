@@ -3,9 +3,9 @@
   "configurations": [
     {
       "name": "codesense",
-      "runtimeExecutable": "streamlit",
-      "runtimeArgs": ["run", "app.py", "--server.headless", "true"],
-      "port": 8501
+      "runtimeExecutable": "chainlit",
+      "runtimeArgs": ["run", "app.py", "--watch"],
+      "port": 8000
     }
   ]
 }

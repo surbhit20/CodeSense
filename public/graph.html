@@ -30,9 +30,14 @@
         title: n.title,
         group: n.group,
         color: n.group === 'file'
-          ? { background: '#4f9cff', border: '#2176d9', highlight: { background: '#76b5ff', border: '#4f9cff' } }
+          ? {
+              background: '#262b33',
+              border: '#3d5a80',
+              highlight: { background: '#3b82f6', border: '#2563eb' },
+              hover: { background: '#2e3844', border: '#4d7aab' },
+            }
           : { background: '#2d2d2d', border: '#555', highlight: { background: '#3a3a3a', border: '#888' } },
-        font: { color: '#eee', size: 13, face: 'monospace' },
+        font: { color: '#e8eaed', size: 13, face: 'monospace' },
         shape: n.group === 'file' ? 'box' : 'dot',
         size: n.group === 'file' ? undefined : 8,
         borderWidth: 1,
@@ -51,11 +56,11 @@
         layout: {
           hierarchical: {
             enabled: true,
-            direction: 'LR',
+            direction: 'UD',
             sortMethod: 'directed',
-            nodeSpacing: 80,
-            levelSeparation: 200,
-            treeSpacing: 100,
+            nodeSpacing: 90,
+            levelSeparation: 110,
+            treeSpacing: 60,
           },
         },
         physics: false,
