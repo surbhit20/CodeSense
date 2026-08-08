@@ -1,0 +1,17 @@
+/* Chainlit's default theme sets --primary to a saturated crimson (hue 340),
+   which reads as the universal "destructive" color even though a separate
+   --destructive token already exists for that. Repoint --primary/--ring at
+   the blue already used for the graph's file nodes and the app's own
+   --sidebar-ring, so the send button and the graph's accent agree. */
+/* custom_css is injected before Chainlit's own stylesheet, so a plain
+   :root/.dark override of equal specificity loses the cascade — !important
+   is required here, not stylistic preference. */
+:root {
+  --primary: 217.2 91.2% 59.8% !important;
+  --ring: 217.2 91.2% 59.8% !important;
+}
+
+.dark {
+  --primary: 217.2 91.2% 59.8% !important;
+  --ring: 217.2 91.2% 59.8% !important;
+}

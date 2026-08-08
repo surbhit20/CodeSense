@@ -15,16 +15,19 @@
 
   function setMinimized(state) {
     minimized = state;
+    var appRoot = document.getElementById('root');
     if (minimized) {
       graphPanel.style.transform = 'translateX(100%)';
       toggleBtn.style.right = '0';
       toggleBtn.title = 'Show graph';
       toggleBtn.innerHTML = '&#9664;'; // ◀
+      if (appRoot) appRoot.style.marginRight = '0';
     } else {
       graphPanel.style.transform = 'translateX(0)';
       toggleBtn.style.right = PANEL_WIDTH;
       toggleBtn.title = 'Hide graph';
       toggleBtn.innerHTML = '&#9654;'; // ▶
+      if (appRoot) appRoot.style.marginRight = PANEL_WIDTH;
     }
   }
 
@@ -62,7 +65,8 @@
     });
     document.body.appendChild(toggleBtn);
 
-    // Graph panel
+    // Graph panel — starts translated off-screen so its first appearance
+    // slides in from the right instead of just popping into place.
     graphPanel = document.createElement('div');
     graphPanel.id = 'codesense-graph-panel';
     graphPanel.style.cssText = [
@@ -75,6 +79,7 @@
       'border-left:1px solid #333',
       'background:#1a1a1a',
       'transition:transform 0.2s ease',
+      'transform:translateX(100%)',
     ].join(';');
 
     graphIframe = document.createElement('iframe');
@@ -90,6 +95,22 @@
 
     graphPanel.appendChild(graphIframe);
     document.body.appendChild(graphPanel);
+
+    // Shrink Chainlit's app root so its own centered layout re-flows into
+    // the space left of the panel, instead of the panel just overlaying
+    // (and clipping) content that doesn't know it exists.
+    var appRoot = document.getElementById('root');
+    if (appRoot) {
+      appRoot.style.transition = 'margin-right 0.2s ease';
+    }
+
+    // Force layout so the off-screen transform above is committed before
+    // switching to the open position — otherwise the browser collapses
+    // both states into one and nothing appears to animate.
+    void graphPanel.offsetWidth;
+
+    graphPanel.style.transform = 'translateX(0)';
+    if (appRoot) appRoot.style.marginRight = PANEL_WIDTH;
   }
 
   window.addEventListener('message', function (e) {
