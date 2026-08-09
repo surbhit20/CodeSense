@@ -66,45 +66,58 @@ async def on_chat_start():
         await cl.Message(content=f"Startup error: {e}\n```\n{traceback.format_exc()}\n```").send()
 
 async def _on_chat_start():
-    res = await cl.AskUserMessage(
+    cl.user_session.set("awaiting_repo", True)
+    await cl.Message(
         content=(
             "**Welcome to CodeSense!** Navigate any GitHub repository with AI.\n\n"
-            "Enter a GitHub URL — or type **`sample`** to try it on CodeSense itself:"
+            "Paste a GitHub URL below, or jump straight in with the sample repo:"
         ),
-        timeout=300,
+        actions=[cl.Action(name="sample_repo", payload={}, label="Sample this repo!")],
     ).send()
 
-    if not res:
-        await cl.Message(content="Timed out. Refresh to restart.").send()
+
+async def load_repo(repo_url: str):
+    """Clones repo_url and wires up the session — shared by the sample-repo
+    button and by typing a URL directly. Guarded by the same busy flag as
+    stream_reply so a second clone can't race an in-flight one."""
+    if cl.user_session.get("busy"):
         return
 
-    url = res["output"].strip()
-    repo_url = SAMPLE_REPO_URL if url.lower() == "sample" else url
+    cl.user_session.set("busy", True)
+    try:
+        cl.user_session.set("awaiting_repo", False)
+        status_msg = await cl.Message(content=f"Cloning `{repo_url}`...").send()
+        success = await asyncio.to_thread(clone, repo_url, CLONE_DIR)
+        if not success:
+            await cl.Message(content="Failed to clone. Check the URL and try again.").send()
+            cl.user_session.set("awaiting_repo", True)
+            return
 
-    status_msg = await cl.Message(content=f"Cloning `{repo_url}`...").send()
-    success = await asyncio.to_thread(clone, repo_url, CLONE_DIR)
-    if not success:
-        await cl.Message(content="Failed to clone. Check the URL and try again.").send()
-        return
+        status_msg.content = f"Successfully cloned `{repo_url}`."
+        await status_msg.update()
 
-    status_msg.content = f"Successfully cloned `{repo_url}`."
-    await status_msg.update()
+        code_tree = Tree(CLONE_DIR)
+        model = LLM(codeTree=code_tree)
+        cl.user_session.set("codeTree", code_tree)
+        cl.user_session.set("model", model)
+        cl.user_session.set("node", None)
 
-    code_tree = Tree(CLONE_DIR)
-    model = LLM(codeTree=code_tree)
-    cl.user_session.set("codeTree", code_tree)
-    cl.user_session.set("model", model)
-    cl.user_session.set("node", None)
+        await render_tree(code_tree)
+        faq_actions = [
+            cl.Action(name="ask_question", payload={"question": q}, label=q)
+            for q in FAQ_QUESTIONS
+        ]
+        await cl.Message(
+            content="Click a file above to analyze it, ask me anything, or try one of these:",
+            actions=faq_actions,
+        ).send()
+    finally:
+        cl.user_session.set("busy", False)
 
-    await render_tree(code_tree)
-    faq_actions = [
-        cl.Action(name="ask_question", payload={"question": q}, label=q)
-        for q in FAQ_QUESTIONS
-    ]
-    await cl.Message(
-        content="Click a file above to analyze it, ask me anything, or try one of these:",
-        actions=faq_actions,
-    ).send()
+
+@cl.action_callback("sample_repo")
+async def on_sample_repo(action: cl.Action):
+    await load_repo(SAMPLE_REPO_URL)
 
 
 async def stream_reply(model: LLM, step_name: str, step_type: str, *, filepath=None, prompt=None):
@@ -212,6 +225,12 @@ async def on_ask_question(action: cl.Action):
 
 @cl.on_message
 async def on_message(message: cl.Message):
+    if cl.user_session.get("awaiting_repo"):
+        url = message.content.strip()
+        repo_url = SAMPLE_REPO_URL if url.lower() == "sample" else url
+        await load_repo(repo_url)
+        return
+
     model = cl.user_session.get("model")
     if model is None:
         await cl.Message(content="No repository loaded. Please restart the chat.").send()
