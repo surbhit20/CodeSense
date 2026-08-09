@@ -21,8 +21,12 @@ DEFAULT_DENY_DIRS = {
 
 
 class Tree():
-    def __init__(self, root='root'):
+    def __init__(self, root='root', display_name=None):
         self.root = Path(root)
+        # root is always the local clone path (e.g. /tmp/codesense-repo),
+        # unrelated to whatever repo actually got cloned there — the graph's
+        # root node needs the real repo name, not that fixed directory name.
+        self.display_name = display_name or self.root.name
         self.repoTree = ""
         self._ignore_patterns = self._load_gitignore()
 
@@ -129,7 +133,7 @@ class Tree():
         root_id = str(self.root)
         nodes_by_id[root_id] = {
             "id": root_id,
-            "label": self.root.name or root_id,
+            "label": self.display_name,
             "group": "dir",
             "title": root_id,
             "depth": 0,

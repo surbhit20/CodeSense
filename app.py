@@ -42,6 +42,16 @@ FAQ_QUESTIONS = [
 ]
 
 
+def repo_display_name(repo_url: str) -> str:
+    """The graph's root node needs the actual repo's name — CLONE_DIR is a
+    fixed local path every repo gets cloned into, so Tree's own root.name
+    is always "codesense-repo" regardless of what was actually cloned."""
+    name = repo_url.rstrip("/").rsplit("/", 1)[-1]
+    if name.endswith(".git"):
+        name = name[:-4]
+    return name or repo_url
+
+
 async def render_tree(code_tree: Tree):
     graph_data = code_tree.get_graph_data()
     await cl.send_window_message({"type": "initGraph", **graph_data})
@@ -112,7 +122,7 @@ async def load_repo(repo_url: str, user_echo: str | None = None):
         status_msg.content = f"Successfully cloned `{repo_url}`."
         await status_msg.update()
 
-        code_tree = Tree(CLONE_DIR)
+        code_tree = Tree(CLONE_DIR, display_name=repo_display_name(repo_url))
         model = LLM(codeTree=code_tree)
         cl.user_session.set("codeTree", code_tree)
         cl.user_session.set("model", model)
