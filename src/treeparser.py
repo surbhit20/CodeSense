@@ -32,6 +32,27 @@ class Tree():
 
         self._build()
         self._getData()
+        # Reverse of to_display_path, for get() — lets the model (and the
+        # rest of the app) work entirely in relative paths without ever
+        # needing to know the real absolute clone location.
+        self._display_to_abs = {
+            self.to_display_path(abs_path): abs_path for abs_path in self.content
+        }
+
+    def to_display_path(self, abs_path) -> str:
+        """Path relative to the repo root, e.g. "src/LLM.py" — never the
+        real absolute clone-directory path. That path is a fixed local
+        temp location every repo gets cloned into (see app.py's
+        CLONE_DIR); showing it to the model means it ends up echoed back
+        verbatim in answers ("Here's what /tmp/codesense-repo/app.py
+        does..."), which is meaningless to a user and actively misleading
+        — it reads like the name of the actual repo."""
+        try:
+            rel = Path(abs_path).relative_to(self.root)
+        except ValueError:
+            return str(abs_path)
+        rel_str = str(rel)
+        return rel_str if rel_str != '.' else self.display_name
 
     def _load_gitignore(self):
         """Best-effort .gitignore support: plain names and glob patterns,
@@ -75,7 +96,7 @@ class Tree():
                 childPath = Path(os.path.join(nodePath, childPath))
                 if self._is_ignored(childPath):
                     continue
-                self.repoTree += f'\n{childPath}'
+                self.repoTree += f'\n{self.to_display_path(childPath)}'
                 if childPath.is_dir():
                     queue.append(childPath)
                 else:
@@ -113,10 +134,16 @@ class Tree():
 
     
     def get(self, filepath):
-        print(f"[INFO] Trying to fetch {filepath}")
-        if filepath in self.content:
-            return self.content[filepath]
-        print(f'[ERROR] File not found. ({filepath})')
+        # The model only ever sees relative (display) paths now, so that's
+        # what it'll pass as the retriever tool's argument — translate back
+        # to the real absolute path to actually read the file. Falls back
+        # to using filepath as-is if it's not a known display path (e.g.
+        # already absolute), so this stays backward compatible.
+        abs_path = self._display_to_abs.get(filepath, filepath)
+        print(f"[INFO] Trying to fetch {abs_path}")
+        if abs_path in self.content:
+            return self.content[abs_path]
+        print(f'[ERROR] File not found. ({abs_path})')
         print(self.content.keys())
         return "File Not Found. Try Again."
 
