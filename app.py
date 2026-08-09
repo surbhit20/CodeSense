@@ -67,10 +67,12 @@ async def on_chat_start():
 
 async def _on_chat_start():
     cl.user_session.set("awaiting_repo", True)
-    await cl.Message(
+    welcome_msg = cl.Message(
         content="**Welcome to CodeSense!**",
         actions=[cl.Action(name="sample_repo", payload={}, label="Sample this repo!")],
-    ).send()
+    )
+    await welcome_msg.send()
+    cl.user_session.set("welcome_msg", welcome_msg)
 
 
 async def load_repo(repo_url: str):
@@ -83,6 +85,15 @@ async def load_repo(repo_url: str):
     cl.user_session.set("busy", True)
     try:
         cl.user_session.set("awaiting_repo", False)
+
+        # Matches ChatGPT's own landing state: the big centered greeting is
+        # only there until the very first message, then it's gone for good
+        # — not left behind as a shrunk chat bubble.
+        welcome_msg = cl.user_session.get("welcome_msg")
+        if welcome_msg:
+            await welcome_msg.remove()
+            cl.user_session.set("welcome_msg", None)
+
         status_msg = await cl.Message(content=f"Cloning `{repo_url}`...").send()
         success = await asyncio.to_thread(clone, repo_url, CLONE_DIR)
         if not success:

@@ -109,17 +109,22 @@
 
 /* The welcome message itself: same landing-state scope, styled as a
    centered hero line rather than a normal left-aligned chat bubble —
-   avatar stacked above a large bold heading, button centered below it. */
-.mx-auto.w-full.flex-grow.p-4 > .step:only-child .ai-message {
+   avatar stacked above a large bold heading, button centered below it.
+   Scoped with :has(button) on top of :only-child — the welcome message
+   gets removed outright once the user acts (see app.py's load_repo),
+   but "Cloning `...`..." then briefly becomes the sole child too, and
+   it has no button. Without this qualifier that plain status line would
+   flash at hero size for the instant before a second message arrives. */
+.mx-auto.w-full.flex-grow.p-4 > .step:only-child:has(button) .ai-message {
   flex-direction: column;
   align-items: center;
   text-align: center;
 }
-.mx-auto.w-full.flex-grow.p-4 > .step:only-child .prose.lg\:prose-xl {
+.mx-auto.w-full.flex-grow.p-4 > .step:only-child:has(button) .prose.lg\:prose-xl {
   font-size: 2rem;
   line-height: 1.2;
 }
-.mx-auto.w-full.flex-grow.p-4 > .step:only-child .-ml-1\.5.flex.items-center.flex-wrap {
+.mx-auto.w-full.flex-grow.p-4 > .step:only-child:has(button) .-ml-1\.5.flex.items-center.flex-wrap {
   justify-content: center;
   margin-left: 0;
 }
