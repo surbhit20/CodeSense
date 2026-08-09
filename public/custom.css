@@ -133,12 +133,12 @@
    assistant ones (no avatar slot exists in the markup at all — it's not
    just unset, the <img> isn't there to begin with), so an avatar file
    under public/avatars/ has nothing to attach to. Fake it with a CSS
-   pseudo-element instead: it lands as the first item in the same flex
-   row as the edit button, and since that button carries `ml-auto`
-   (which is what pushes the whole row — and therefore the bubble after
-   it — to the right), inserting before it sits this avatar alone at the
-   row's left edge, mirroring where the assistant's avatar sits. */
-[data-step-type="user_message"] .flex.flex-row.items-center.gap-1.w-full.group::before {
+   pseudo-element instead. The row is [edit button, bubble], and the
+   edit button's `ml-auto` is what pushes that whole pair to the right —
+   appending this *after* the bubble (not before it) keeps it inside
+   that pushed-right group, landing it flush against the bubble's right
+   edge instead of stranded alone at the far-left of the row. */
+[data-step-type="user_message"] .flex.flex-row.items-center.gap-1.w-full.group::after {
   content: '';
   display: block;
   width: 20px;

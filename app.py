@@ -183,8 +183,10 @@ async def stream_reply(model: LLM, step_name: str, step_type: str, *, filepath=N
                     # A nested step under the parent — this is what makes the
                     # chain of thought visible: expanding the parent later
                     # shows the sequence of files it read, not just the
-                    # final input/output.
-                    async with cl.Step(name=f"Reading {short_name}", type="tool") as tool_step:
+                    # final input/output. Named after the file alone, not
+                    # "Reading X" — Chainlit's collapsed label is always
+                    # "Used {name}", so a verb in the name doubles up.
+                    async with cl.Step(name=short_name, type="tool") as tool_step:
                         tool_step.output = "Fetched"
                     continue
 
