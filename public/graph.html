@@ -60,6 +60,7 @@
     // what's currently visible.
     let nodeById = new Map();
     let childrenOf = new Map();
+    let parentOf = new Map();
     let expandedDirs = new Set();
 
     // How many of a directory's children are currently revealed. A folder
@@ -179,6 +180,9 @@
     // — so compute the center/scale ourselves from actual node positions
     // instead of trusting it.
     function fitToNodes(animate) {
+      // Also supersede any in-flight fitWhenReady() retry chain from an
+      // earlier click — a direct caller (the reset button) always wins.
+      fitToken++;
       const ids = allNodes.getIds();
       if (!ids.length || !network) return;
       const positions = network.getPositions(ids);
@@ -226,18 +230,28 @@
     // setTimeout, not requestAnimationFrame — rAF never fires while the tab
     // is backgrounded, which would strand this permanently if the panel
     // gets created while the user is on a different tab.
-    function fitWhenReady(animate, attemptsLeft) {
-      if (attemptsLeft === undefined) {
-        // Always defer at least one tick so case 2 above gets a chance to
-        // settle even when the container is already correctly sized.
-        setTimeout(() => fitWhenReady(animate, 40), 30);
-        return;
-      }
+    //
+    // On a huge repo it's normal to click through several folders in quick
+    // succession, well within each other's fit delay/animation window —
+    // without coalescing, each click's fit chain runs independently and
+    // whichever happens to land last "wins", even if it started from an
+    // earlier, now-stale node set. A token invalidates every in-flight
+    // attempt from a previous call the moment a new one is requested, so
+    // only the most recent click's fit ever actually runs.
+    let fitToken = 0;
+
+    function fitWhenReady(animate) {
+      const myToken = ++fitToken;
+      setTimeout(() => attemptFit(animate, myToken, 40), 30);
+    }
+
+    function attemptFit(animate, myToken, attemptsLeft) {
+      if (myToken !== fitToken) return; // superseded by a newer request
       const container = document.getElementById('graph');
       if (container.clientWidth > 0 && container.clientHeight > 0) {
         fitToNodes(animate);
       } else if (attemptsLeft > 0) {
-        setTimeout(() => fitWhenReady(animate, attemptsLeft - 1), 50);
+        setTimeout(() => attemptFit(animate, myToken, attemptsLeft - 1), 50);
       }
     }
 
@@ -288,11 +302,39 @@
       visibleCount.delete(dirId);
     }
 
+    // Keeps total visible complexity bounded to roughly one active
+    // drill-down path — without this, a deep/wide repo (buck2: 535
+    // directories, up to 12 levels deep) accumulates every branch a user
+    // has ever clicked into over a session, and no amount of per-directory
+    // pagination or layout tuning keeps *that* readable; the combined
+    // bounding box ends up so lopsided (extremely wide, or extremely
+    // tall, depending which branches happened to be open) that fitting it
+    // shrinks the whole graph into an illegible sliver. Expanding a new
+    // directory collapses any other expanded one that isn't one of its
+    // own ancestors — the path leading to it stays open, unrelated
+    // branches close, like a single-open accordion.
+    function collapseUnrelated(dirId) {
+      const ancestors = new Set();
+      let cur = dirId;
+      while (parentOf.has(cur)) {
+        cur = parentOf.get(cur);
+        ancestors.add(cur);
+      }
+      for (const expandedId of Array.from(expandedDirs)) {
+        if (expandedId !== dirId && !ancestors.has(expandedId)) {
+          expandedDirs.delete(expandedId);
+          hideDescendants(expandedId);
+          refreshNode(expandedId);
+        }
+      }
+    }
+
     function toggleDir(dirId) {
       if (expandedDirs.has(dirId)) {
         expandedDirs.delete(dirId);
         hideDescendants(dirId);
       } else {
+        collapseUnrelated(dirId);
         expandedDirs.add(dirId);
         showChildren(dirId);
       }
@@ -335,9 +377,11 @@
 
       nodeById = new Map(nodes.map(n => [n.id, n]));
       childrenOf = new Map();
+      parentOf = new Map();
       for (const e2 of edges) {
         if (!childrenOf.has(e2.from)) childrenOf.set(e2.from, []);
         childrenOf.get(e2.from).push(e2.to);
+        parentOf.set(e2.to, e2.from);
       }
       expandedDirs = new Set();
       visibleCount = new Map();
