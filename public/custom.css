@@ -107,6 +107,23 @@
   flex-grow: 0;
 }
 
+/* The welcome message itself: same landing-state scope, styled as a
+   centered hero line rather than a normal left-aligned chat bubble —
+   avatar stacked above a large bold heading, button centered below it. */
+.mx-auto.w-full.flex-grow.p-4 > .step:only-child .ai-message {
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+.mx-auto.w-full.flex-grow.p-4 > .step:only-child .prose.lg\:prose-xl {
+  font-size: 2rem;
+  line-height: 1.2;
+}
+.mx-auto.w-full.flex-grow.p-4 > .step:only-child .-ml-1\.5.flex.items-center.flex-wrap {
+  justify-content: center;
+  margin-left: 0;
+}
+
 /* Composer: widen and give it the tall, pronounced pill shape of a
    "landing page" search bar rather than a slim chat input, since on the
    empty screen above it's now the visual anchor of the page. */

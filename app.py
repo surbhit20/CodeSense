@@ -68,10 +68,7 @@ async def on_chat_start():
 async def _on_chat_start():
     cl.user_session.set("awaiting_repo", True)
     await cl.Message(
-        content=(
-            "**Welcome to CodeSense!** Navigate any GitHub repository with AI.\n\n"
-            "Paste a GitHub URL below, or jump straight in with the sample repo:"
-        ),
+        content="**Welcome to CodeSense!**",
         actions=[cl.Action(name="sample_repo", payload={}, label="Sample this repo!")],
     ).send()
 
