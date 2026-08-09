@@ -80,13 +80,43 @@
 }
 
 /* ...but the very first screen (just the welcome prompt, nothing sent
-   yet) is a one-message empty state, not a short conversation — bottom-
-   anchoring it makes it look like a layout bug, floating over a blank
-   page. Pin that single message to the top instead; the instant a second
-   message arrives, this stops matching and flex-end above takes back
-   over. */
-.mx-auto.w-full.flex-grow.p-4 > .step:only-child {
-  margin-bottom: auto;
+   yet) is a one-message empty state, not a short conversation —
+   bottom-anchoring it makes it look like a layout bug, floating over a
+   blank page. Match ChatGPT's own landing state instead: shrink the
+   message area to its natural content height (drop flex-grow) and let
+   the shared parent center the whole (message + composer) group as one
+   block in the middle of the viewport. The instant a second message
+   arrives this stops matching, flex-grow comes back, and flex-end above
+   takes over like a normal chat. */
+/* The message list actually sits two flex-grow wrappers deep inside this
+   container (container > .relative.flex-grow.overflow-y-auto > .flex-
+   grow.overflow-y-auto > the message column itself) — zeroing flex-grow
+   only on the innermost one does nothing, since its *parent* still
+   claims all the space one level up. Zero it on the direct child
+   instead; that starves the whole chain below it of the "extra space"
+   flex-grow needs to have any effect. */
+.flex.w-full.h-full.flex-col.relative:has(
+    .mx-auto.w-full.flex-grow.p-4 > .step:only-child
+  ) {
+  justify-content: center;
+}
+.flex.w-full.h-full.flex-col.relative:has(
+    .mx-auto.w-full.flex-grow.p-4 > .step:only-child
+  )
+  > .relative.flex.flex-col.flex-grow.overflow-y-auto {
+  flex-grow: 0;
+}
+
+/* Composer: widen and give it the tall, pronounced pill shape of a
+   "landing page" search bar rather than a slim chat input, since on the
+   empty screen above it's now the visual anchor of the page. */
+.relative.flex.flex-col.items-center.gap-2.w-full {
+  max-width: 768px;
+}
+.bg-accent.rounded-3xl.p-3.px-4.w-full.min-h-24,
+.dark .bg-accent.rounded-3xl.p-3.px-4.w-full.min-h-24 {
+  border-radius: 28px;
+  min-height: 6.5rem;
 }
 
 /* Chainlit's built-in "scroll to latest message" button uses the default

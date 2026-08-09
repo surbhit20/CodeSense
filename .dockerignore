@@ -1,0 +1,13 @@
+.git
+.env
+.env.*
+__pycache__
+**/__pycache__
+*.pyc
+*.so
+.chainlit/.sessions
+root/
+.devcontainer
+.streamlit
+.vscode
+.idea

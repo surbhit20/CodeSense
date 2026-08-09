@@ -62,6 +62,15 @@
     let childrenOf = new Map();
     let expandedDirs = new Set();
 
+    // How many of a directory's children are currently revealed. A folder
+    // with more than PAGE_SIZE children doesn't dump all of them at once —
+    // huge repos (hundreds of siblings) turned that into an unreadable fan
+    // of unlabeled boxes regardless of layout. Paginate instead: show a
+    // "+N more" node that reveals the next batch on click, independent of
+    // how big the underlying repo is.
+    const PAGE_SIZE = 10;
+    let visibleCount = new Map();
+
     let allNodes = new vis.DataSet([]);
     let allEdges = new vis.DataSet([]);
 
@@ -80,10 +89,44 @@
       highlight: { background: '#3b82f6', border: '#dbeafe' },
       hover: { background: '#262b33', border: 'hsl(217.2 91.2% 59.8% / 0.45)' },
     };
+    // Deliberately duller and dashed — this isn't a real file or folder, it's
+    // a "reveal more" control, and it needs to read as clearly different so
+    // it's never mistaken for actual repo content.
+    const MORE_COLOR = {
+      background: '#1c1f24', border: '#4a5160',
+      highlight: { background: '#262b33', border: '#6b7280' },
+      hover: { background: '#22262c', border: '#5a6270' },
+    };
 
     function dirLabel(node) {
       const arrow = expandedDirs.has(node.id) ? '▾' : '▸';
       return `${arrow} ${node.label}`;
+    }
+
+    function moreNodeId(dirId) {
+      return `__more__:${dirId}`;
+    }
+
+    function moreEdgeId(dirId) {
+      return `${dirId}->${moreNodeId(dirId)}`;
+    }
+
+    function toMoreVisNode(dirId, remaining) {
+      const parentDepth = nodeById.get(dirId)?.depth ?? 0;
+      return {
+        id: moreNodeId(dirId),
+        label: `+ ${remaining} more`,
+        shape: 'box',
+        // Same level as the real siblings it stands in for — otherwise it's
+        // just as exposed to the leaf-alignment issue toVisNode's `level`
+        // fixes for everything else.
+        level: parentDepth + 1,
+        color: MORE_COLOR,
+        font: { color: '#8a93a6', size: 12, face: 'monospace' },
+        borderWidth: 1,
+        borderDashes: [4, 3],
+        margin: 8,
+      };
     }
 
     function toVisNode(node) {
@@ -93,6 +136,16 @@
         label: isDir ? dirLabel(node) : node.label,
         title: node.title,
         group: node.group,
+        // Without an explicit level, vis's hierarchical layout infers one
+        // per node from the edges — and its inference pulls leaf nodes
+        // (no children currently shown) down to align with whatever the
+        // deepest visible branch is. On a repo with uneven nesting depth
+        // (a shallow top level next to one folder that goes 5+ levels
+        // deep) that dragged root's ordinary shallow children down to sit
+        // beside a totally unrelated branch's files. We already compute
+        // real tree depth server-side — pin it explicitly instead of
+        // trusting the heuristic.
+        level: node.depth ?? 0,
         color: isDir ? (expandedDirs.has(node.id) ? DIR_EXPANDED : DIR_COLLAPSED) : FILE_COLOR,
         font: isDir
           ? { color: '#f2f4f7', size: 15, face: 'monospace', bold: { color: '#f2f4f7' } }
@@ -160,14 +213,26 @@
       }
     }
 
-    // The panel this graph lives in slides in via CSS transform, and the
-    // very first fit can land while that's still settling (container
-    // reports 0×0 for a frame or two). Poll instead of guessing a delay.
+    // Two unrelated things can make an immediate fit wrong, both fixed by
+    // waiting rather than measuring synchronously:
+    //  1. The panel this graph lives in slides in via CSS transform, and
+    //     the very first fit can land while that's still settling
+    //     (container reports 0×0 for a frame or two).
+    //  2. After a DataSet mutation (expand, collapse, "+more"), vis's
+    //     hierarchical layout hasn't necessarily finished repositioning
+    //     everything yet — fitting against getPositions() too early once
+    //     measured a "+more" node's position as still off past the right
+    //     edge of the container, from before the relayout had settled.
     // setTimeout, not requestAnimationFrame — rAF never fires while the tab
     // is backgrounded, which would strand this permanently if the panel
     // gets created while the user is on a different tab.
     function fitWhenReady(animate, attemptsLeft) {
-      if (attemptsLeft === undefined) attemptsLeft = 40;
+      if (attemptsLeft === undefined) {
+        // Always defer at least one tick so case 2 above gets a chance to
+        // settle even when the container is already correctly sized.
+        setTimeout(() => fitWhenReady(animate, 40), 30);
+        return;
+      }
       const container = document.getElementById('graph');
       if (container.clientWidth > 0 && container.clientHeight > 0) {
         fitToNodes(animate);
@@ -176,12 +241,32 @@
       }
     }
 
+    // Reveals the next page of dirId's children (the first page, if none
+    // are shown yet). Safe to call repeatedly on an already-expanded
+    // directory — that's exactly how the "+N more" node advances.
     function showChildren(dirId) {
       const kids = childrenOf.get(dirId) || [];
-      const nodesToAdd = kids.filter(id => !allNodes.get(id)).map(id => toVisNode(nodeById.get(id)));
-      const edgesToAdd = kids
+      const shown = visibleCount.get(dirId) || 0;
+      const nextShown = Math.min(shown + PAGE_SIZE, kids.length);
+      visibleCount.set(dirId, nextShown);
+
+      const toShow = kids.slice(shown, nextShown);
+      const nodesToAdd = toShow.filter(id => !allNodes.get(id)).map(id => toVisNode(nodeById.get(id)));
+      const edgesToAdd = toShow
         .filter(id => !allEdges.get(`${dirId}->${id}`))
         .map(id => edgeSpec({ from: dirId, to: id }));
+
+      // Drop the old "+more" node before deciding whether a new one is
+      // needed — otherwise its count goes stale after the first page.
+      if (allNodes.get(moreNodeId(dirId))) allNodes.remove(moreNodeId(dirId));
+      if (allEdges.get(moreEdgeId(dirId))) allEdges.remove(moreEdgeId(dirId));
+
+      const remaining = kids.length - nextShown;
+      if (remaining > 0) {
+        nodesToAdd.push(toMoreVisNode(dirId, remaining));
+        edgesToAdd.push(edgeSpec({ from: dirId, to: moreNodeId(dirId) }));
+      }
+
       if (nodesToAdd.length) allNodes.add(nodesToAdd);
       if (edgesToAdd.length) allEdges.add(edgesToAdd);
     }
@@ -198,6 +283,9 @@
         const edgeId = `${dirId}->${childId}`;
         if (allEdges.get(edgeId)) allEdges.remove(edgeId);
       }
+      if (allNodes.get(moreNodeId(dirId))) allNodes.remove(moreNodeId(dirId));
+      if (allEdges.get(moreEdgeId(dirId))) allEdges.remove(moreEdgeId(dirId));
+      visibleCount.delete(dirId);
     }
 
     function toggleDir(dirId) {
@@ -225,8 +313,11 @@
       labelsHidden = shouldHide;
       const updates = allNodes.get().map(n => {
         const node = nodeById.get(n.id);
-        const base = toVisNode(node);
-        base.font = { ...base.font, size: shouldHide ? 0 : base.font.size };
+        // "+more" nodes aren't in nodeById (they're synthetic, not real
+        // repo entries) — fall back to their own current font instead of
+        // building a fresh one from a node that doesn't exist.
+        const base = node ? toVisNode(node) : { id: n.id, font: n.font };
+        base.font = { ...base.font, size: shouldHide ? 0 : (node ? base.font.size : 12) };
         return base;
       });
       if (updates.length) allNodes.update(updates);
@@ -249,22 +340,20 @@
         childrenOf.get(e2.from).push(e2.to);
       }
       expandedDirs = new Set();
+      visibleCount = new Map();
       labelsHidden = false;
 
-      // Start collapsed to depth 1 (root + its direct children) instead of
-      // dumping the whole tree — a 30-node graph opening at full breadth is
-      // unreadable regardless of layout.
-      const initialIds = nodes.filter(n => (n.depth ?? 0) <= 1).map(n => n.id);
-      allNodes = new vis.DataSet(initialIds.map(id => toVisNode(nodeById.get(id))));
-      const initialEdgeList = [];
-      for (const id of initialIds) {
-        const node = nodeById.get(id);
-        if (node.depth === 0) continue;
-        for (const e2 of edges) {
-          if (e2.to === id && initialIds.includes(e2.from)) initialEdgeList.push(edgeSpec(e2));
-        }
+      // Start collapsed to just the root instead of dumping the whole tree
+      // — a 30-node graph opening at full breadth is unreadable regardless
+      // of layout. showChildren() (same paginated logic a click uses)
+      // reveals the root's first page of children below.
+      const rootNode = nodes.find(n => (n.depth ?? 0) === 0);
+      allNodes = new vis.DataSet(rootNode ? [toVisNode(rootNode)] : []);
+      allEdges = new vis.DataSet([]);
+      if (rootNode) {
+        expandedDirs.add(rootNode.id);
+        showChildren(rootNode.id);
       }
-      allEdges = new vis.DataSet(initialEdgeList);
 
       const options = {
         layout: {
@@ -300,14 +389,27 @@
       );
       network.on('click', (params) => {
         if (busy || !params.nodes.length) return;
+        // The empty-state hint only used to hide on a *file* click — expand
+        // a folder instead (the far more common first action) and it sat
+        // there, centered, for the rest of the session, drawn on top of
+        // whatever the graph grew into underneath it. Any click on the
+        // graph means the user found it; dismiss it right away regardless
+        // of what kind of node they hit.
+        document.getElementById('hint').classList.add('hidden');
         const nodeId = params.nodes[0];
+
+        if (nodeId.startsWith('__more__:')) {
+          showChildren(nodeId.slice('__more__:'.length));
+          fitWhenReady(true);
+          return;
+        }
+
         const node = nodeById.get(nodeId);
         if (!node) return;
         if (node.group === 'dir') {
           toggleDir(nodeId);
           return;
         }
-        document.getElementById('hint').classList.add('hidden');
         window.parent.postMessage({ type: 'nodeClick', id: nodeId }, '*');
       });
 
