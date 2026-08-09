@@ -5,9 +5,31 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import chainlit as cl
+from chainlit.server import app as chainlit_app
 from src.treeparser import Tree
 from src.LLM import LLM
 from src.utils import clone
+
+# Chainlit serves custom_js/custom_css from /public via a plain FileResponse
+# with no Cache-Control header, so browsers fall back to heuristic caching
+# and can keep serving a stale copy indefinitely after a deploy. Force
+# revalidation instead — FileResponse already sets ETag/Last-Modified, so a
+# deploy still only costs a cheap conditional-GET, not a full refetch.
+#
+# Guarded because `chainlit run --watch` re-executes this whole module on
+# *any* file change (not just app.py) once the server has already started
+# — Starlette refuses to add middleware after that point and raises
+# RuntimeError. Harmless to skip on reload since the first registration is
+# already live; a real deploy only ever runs this once anyway.
+try:
+    @chainlit_app.middleware("http")
+    async def no_cache_public_assets(request, call_next):
+        response = await call_next(request)
+        if request.url.path.startswith("/public/"):
+            response.headers["Cache-Control"] = "no-cache"
+        return response
+except RuntimeError:
+    pass
 
 SAMPLE_REPO_URL = "https://github.com/surbhit20/CodeSense.git"
 CLONE_DIR = "/tmp/codesense-repo"

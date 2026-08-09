@@ -79,7 +79,11 @@
 
     graphIframe = document.createElement('iframe');
     graphIframe.src = '/public/graph.html';
-    graphIframe.style.cssText = 'width:100%;height:100%;border:none;display:block;';
+    // outline:none — clicking a node inside the iframe shifts DOM focus to
+    // the <iframe> element itself in this (parent) document, and Chrome's
+    // default focus ring then outlines the whole panel, not just the node
+    // that was actually clicked.
+    graphIframe.style.cssText = 'width:100%;height:100%;border:none;display:block;outline:none;';
 
     graphIframe.addEventListener('load', function () {
       if (pendingData) {
