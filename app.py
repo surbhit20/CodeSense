@@ -170,49 +170,58 @@ async def stream_reply(model: LLM, step_name: str, step_type: str, *, filepath=N
         if user_echo:
             await cl.Message(content=user_echo, type="user_message").send()
 
-        async with cl.Step(name=step_name, type=step_type) as step:
-            step.input = filepath or prompt
-            await step.update()
+        # Managed manually (no `async with`) so this step never becomes the
+        # "ambient" step — entering it via `async with` registers it in
+        # Chainlit's context var, which then force-parents *any* cl.Message
+        # or cl.Step created inside the block, including the final answer.
+        # That nested the visible answer text inside this step's collapsible
+        # dropdown. Explicit parent_id on the tool sub-steps below still
+        # nests those on purpose, for the chain-of-thought trace.
+        step = cl.Step(name=step_name, type=step_type)
+        step.input = filepath or prompt
+        await step.send()
 
-            # The first completion call often just decides to call the
-            # retriever tool and streams no visible content — without this,
-            # the message sits blank for that whole round trip. Its text
-            # doubles as a live "what is it doing right now" indicator,
-            # updated as each file is fetched.
-            thinking = cl.Message(content="Thinking…")
-            await thinking.send()
+        # The first completion call often just decides to call the
+        # retriever tool and streams no visible content — without this,
+        # the message sits blank for that whole round trip. Its text
+        # doubles as a live "what is it doing right now" indicator,
+        # updated as each file is fetched.
+        thinking = cl.Message(content="Thinking…")
+        await thinking.send()
 
-            msg = cl.Message(content="")
-            first_token = True
-            async for kind, payload in model.call_stream(filepath=filepath, prompt=prompt):
-                if kind == 'tool_call':
-                    short_name = payload.replace(CLONE_DIR + '/', '')
-                    if first_token:
-                        thinking.content = f"Reading `{short_name}`…"
-                        await thinking.update()
-                    # A nested step under the parent — this is what makes the
-                    # chain of thought visible: expanding the parent later
-                    # shows the sequence of files it read, not just the
-                    # final input/output. Named after the file alone, not
-                    # "Reading X" — Chainlit's collapsed label is always
-                    # "Used {name}", so a verb in the name doubles up.
-                    async with cl.Step(name=short_name, type="tool") as tool_step:
-                        tool_step.output = "Fetched"
-                    continue
-
+        msg = cl.Message(content="")
+        first_token = True
+        async for kind, payload in model.call_stream(filepath=filepath, prompt=prompt):
+            if kind == 'tool_call':
+                short_name = payload.replace(CLONE_DIR + '/', '')
                 if first_token:
-                    await thinking.remove()
-                    await msg.send()
-                    first_token = False
-                await msg.stream_token(payload)
-                await asyncio.sleep(STREAM_PACE_SECONDS)
+                    thinking.content = f"Reading `{short_name}`…"
+                    await thinking.update()
+                # A nested step under the parent — this is what makes the
+                # chain of thought visible: expanding the parent later
+                # shows the sequence of files it read, not just the
+                # final input/output. Named after the file alone, not
+                # "Reading X" — Chainlit's collapsed label is always
+                # "Used {name}", so a verb in the name doubles up.
+                tool_step = cl.Step(name=short_name, type="tool", parent_id=step.id)
+                tool_step.output = "Fetched"
+                await tool_step.send()
+                continue
 
             if first_token:
                 await thinking.remove()
                 await msg.send()
+                first_token = False
+            await msg.stream_token(payload)
+            await asyncio.sleep(STREAM_PACE_SECONDS)
 
-            await msg.update()
-            step.output = msg.content
+        if first_token:
+            await thinking.remove()
+            await msg.send()
+
+        await msg.update()
+        step.output = msg.content
+        await step.update()
     finally:
         cl.user_session.set("busy", False)
         await cl.send_window_message({"type": "setBusy", "busy": False})
