@@ -182,16 +182,23 @@ async def stream_reply(model: LLM, step_name: str, step_type: str, *, filepath=N
         # dropdown. Explicit parent_id on the tool sub-steps below still
         # nests those on purpose, for the chain-of-thought trace.
         #
-        # Sending is deferred to the end (once the whole exchange is
-        # done) rather than done here — sending it now would show a
-        # completed-looking "Used {name}" row alongside the still-live
-        # "Reading {file}…" line below it, which reads as two rows for
-        # one in-progress action. Step.id is assigned at construction
-        # (a local uuid4), so nested tool sub-steps can already
-        # reference it as their parent_id before it's sent.
+        # Sending is deferred until the first content token (rather than
+        # done here) — sending it now would show a completed-looking
+        # "Used {name}" row alongside the still-live "Reading {file}…"
+        # line below it, which reads as two rows for one in-progress
+        # action. Step.id is assigned at construction (a local uuid4),
+        # so nested tool sub-steps can already reference it as their
+        # parent_id before it's sent.
+        #
+        # It's flushed right before the answer message's first send()
+        # rather than at the very end — Chainlit orders elements by
+        # arrival, not by when the Python object was constructed, so
+        # sending it after the (already-sent) message would make the
+        # step show up below the answer instead of above it.
         step = cl.Step(name=step_name, type=step_type)
         step.input = filepath or prompt
         pending_tool_steps = []
+        step_sent = False
 
         # The first completion call often just decides to call the
         # retriever tool and streams no visible content — without this,
@@ -215,14 +222,26 @@ async def stream_reply(model: LLM, step_name: str, step_type: str, *, filepath=N
                 # final input/output. Named after the file alone, not
                 # "Reading X" — Chainlit's collapsed label is always
                 # "Used {name}", so a verb in the name doubles up.
-                # Queued rather than sent immediately — see note above.
+                # Queued (or, once the parent's already been sent, sent
+                # right away) rather than always sent immediately — see
+                # note above.
                 tool_step = cl.Step(name=short_name, type="tool", parent_id=step.id)
                 tool_step.output = "Fetched"
-                pending_tool_steps.append(tool_step)
+                if step_sent:
+                    await tool_step.send()
+                else:
+                    pending_tool_steps.append(tool_step)
                 continue
 
             if first_token:
                 await thinking.remove()
+                # Parent before children before the answer, so arrival
+                # order in the transcript is: step, its nested trace,
+                # then the answer.
+                await step.send()
+                for tool_step in pending_tool_steps:
+                    await tool_step.send()
+                step_sent = True
                 await msg.send()
                 first_token = False
             await msg.stream_token(payload)
@@ -230,16 +249,15 @@ async def stream_reply(model: LLM, step_name: str, step_type: str, *, filepath=N
 
         if first_token:
             await thinking.remove()
+            await step.send()
+            for tool_step in pending_tool_steps:
+                await tool_step.send()
+            step_sent = True
             await msg.send()
 
         await msg.update()
         step.output = msg.content
-        # Sent now, after the fact, rather than up front — see the note
-        # where `step` is constructed. Parent before children so the
-        # nested chain-of-thought trace attaches correctly.
-        await step.send()
-        for tool_step in pending_tool_steps:
-            await tool_step.send()
+        await step.update()
     finally:
         cl.user_session.set("busy", False)
         await cl.send_window_message({"type": "setBusy", "busy": False})
