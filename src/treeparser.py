@@ -1,3 +1,4 @@
+import fnmatch
 import os
 from pathlib import Path
 from collections import deque
@@ -10,13 +11,54 @@ try:
 except Exception:
     _HAS_CPP_SCANNER = False
 
+# Directories that are never source — build/dependency/VCS output. Skipped
+# regardless of .gitignore, since repos routinely forget to list all of these.
+DEFAULT_DENY_DIRS = {
+    '__pycache__', '.git', '.hg', '.svn', 'node_modules', '.venv', 'venv',
+    'env', '.mypy_cache', '.pytest_cache', '.ruff_cache', '.tox',
+    'dist', 'build', '.next', '.nuxt', '.idea', '.vscode',
+}
+
+
 class Tree():
     def __init__(self, root='root'):
         self.root = Path(root)
         self.repoTree = ""
+        self._ignore_patterns = self._load_gitignore()
 
         self._build()
         self._getData()
+
+    def _load_gitignore(self):
+        """Best-effort .gitignore support: plain names and glob patterns,
+        matched against a path's basename or its path relative to the repo
+        root. No negation/anchoring semantics — good enough to keep obvious
+        ignored junk (build output, caches, env files) out of both the file
+        index and the graph."""
+        patterns = []
+        gitignore_path = self.root / '.gitignore'
+        if gitignore_path.is_file():
+            try:
+                for line in gitignore_path.read_text(errors='ignore').splitlines():
+                    line = line.strip()
+                    if line and not line.startswith('#'):
+                        patterns.append(line.rstrip('/'))
+            except OSError:
+                pass
+        return patterns
+
+    def _is_ignored(self, path: Path) -> bool:
+        if any(part in DEFAULT_DENY_DIRS for part in path.parts):
+            return True
+        name = path.name
+        try:
+            rel = str(path.relative_to(self.root))
+        except ValueError:
+            rel = str(path)
+        for pattern in self._ignore_patterns:
+            if fnmatch.fnmatch(name, pattern) or fnmatch.fnmatch(rel, pattern):
+                return True
+        return False
 
     def _build(self):
         queue = deque([self.root])
@@ -27,6 +69,8 @@ class Tree():
             for childPath in os.listdir(nodePath):
                 if childPath.startswith('.'): continue
                 childPath = Path(os.path.join(nodePath, childPath))
+                if self._is_ignored(childPath):
+                    continue
                 self.repoTree += f'\n{childPath}'
                 if childPath.is_dir():
                     queue.append(childPath)
@@ -44,6 +88,8 @@ class Tree():
             candidate_files = self.files
 
         for file in candidate_files:
+            if self._is_ignored(file):
+                continue
             mime_type, _ = mimetypes.guess_type(file)
             if mime_type is None and str(file).endswith('.ipynb'):
                 mime_type = 'application/json'
@@ -71,40 +117,61 @@ class Tree():
         return "File Not Found. Try Again."
 
     def get_graph_data(self):
-        nodes, edges, visited = [], [], set()
-        queue = deque([self.root])
-        while queue:
-            nodePath = queue.popleft()
-            node_id = str(nodePath)
-            if node_id not in visited:
-                visited.add(node_id)
-                nodes.append({
-                    "id": node_id,
-                    "label": nodePath.name,
-                    "group": "dir" if nodePath.is_dir() else "file",
-                    "title": node_id,
-                })
-            if nodePath.is_dir():
-                try:
-                    children = sorted(os.listdir(nodePath))
-                except PermissionError:
-                    continue
-                for child in children:
-                    if child.startswith('.'): continue
-                    childPath = Path(os.path.join(nodePath, child))
-                    child_id = str(childPath)
-                    edges.append({"from": node_id, "to": child_id})
-                    if child_id not in visited:
-                        visited.add(child_id)
-                        nodes.append({
-                            "id": child_id,
-                            "label": childPath.name,
-                            "group": "dir" if childPath.is_dir() else "file",
-                            "title": child_id,
-                        })
-                        if childPath.is_dir():
-                            queue.append(childPath)
-        return {"nodes": nodes, "edges": edges}
+        """Builds the graph directly from self.content — the same filtered
+        file set the chat's file-action buttons use — so the graph and the
+        chat can never disagree about what the repo "contains". Directories
+        that end up with no surviving file underneath them (e.g. an
+        images-only assets/ folder) simply never get a node, since they're
+        only ever created as an ancestor of a kept file."""
+        nodes_by_id = {}
+        edges = []
+
+        root_id = str(self.root)
+        nodes_by_id[root_id] = {
+            "id": root_id,
+            "label": self.root.name or root_id,
+            "group": "dir",
+            "title": root_id,
+            "depth": 0,
+        }
+
+        for filepath in sorted(self.content.keys()):
+            path = Path(filepath)
+            try:
+                rel_parts = path.relative_to(self.root).parts
+            except ValueError:
+                continue
+            if not rel_parts:
+                continue
+
+            parent_id = root_id
+            current = self.root
+            for depth, part in enumerate(rel_parts[:-1], start=1):
+                current = current / part
+                current_id = str(current)
+                if current_id not in nodes_by_id:
+                    nodes_by_id[current_id] = {
+                        "id": current_id,
+                        "label": part,
+                        "group": "dir",
+                        "title": current_id,
+                        "depth": depth,
+                    }
+                    edges.append({"from": parent_id, "to": current_id})
+                parent_id = current_id
+
+            file_id = str(path)
+            if file_id not in nodes_by_id:
+                nodes_by_id[file_id] = {
+                    "id": file_id,
+                    "label": path.name,
+                    "group": "file",
+                    "title": file_id,
+                    "depth": len(rel_parts),
+                }
+                edges.append({"from": parent_id, "to": file_id})
+
+        return {"nodes": list(nodes_by_id.values()), "edges": edges}
 
 if __name__ == '__main__':
     tree = Tree()

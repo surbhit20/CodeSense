@@ -15,3 +15,92 @@
   --primary: 217.2 91.2% 59.8% !important;
   --ring: 217.2 91.2% 59.8% !important;
 }
+
+/* Graph panel drag handle: a plain <button> would otherwise pick up the
+   browser's default focus ring on click, which floats in the middle of
+   the chat/graph split looking like an accidental leftover rather than a
+   deliberate control. Suppress that entirely and draw our own grip that
+   stays invisible until hovered or focused. */
+.codesense-graph-toggle {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  outline: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.codesense-graph-toggle-grip {
+  display: block;
+  width: 4px;
+  height: 28px;
+  border-radius: 2px;
+  background: hsl(0 0% 100% / 0.12);
+  transition: background-color 0.15s ease, height 0.15s ease;
+}
+.codesense-graph-toggle:hover .codesense-graph-toggle-grip,
+.codesense-graph-toggle:focus-visible .codesense-graph-toggle-grip {
+  background: hsl(217.2 91.2% 59.8% / 0.7);
+  height: 36px;
+}
+.codesense-graph-toggle:focus-visible {
+  box-shadow: 0 0 0 2px hsl(217.2 91.2% 59.8% / 0.35);
+  border-radius: 4px;
+}
+
+/* File/action buttons ("requirements.txt", "app.py", ...) render as plain
+   ghost buttons — no fill, no border, nothing to signal they're clickable
+   until you're already hovering. Give them a surface and a border so they
+   read as chips, plus a small gap now that they have visible edges. */
+.-ml-1\.5.flex.items-center.flex-wrap {
+  gap: 6px;
+  row-gap: 6px;
+}
+.-ml-1\.5.flex.items-center.flex-wrap > button {
+  background-color: hsl(var(--card));
+  border: 1px solid hsl(var(--border) / 0.7);
+  border-radius: 6px;
+}
+.-ml-1\.5.flex.items-center.flex-wrap > button:hover {
+  background-color: hsl(217.2 91.2% 59.8% / 0.12);
+  border-color: hsl(217.2 91.2% 59.8% / 0.5);
+  color: hsl(217.2 91.2% 59.8%);
+}
+
+/* Message column: Chainlit drops its own max-width class once the
+   available width crosses an internal breakpoint, which our graph panel
+   triggers by shrinking #root. Enforce a readable column ourselves
+   regardless of what that logic decides, and anchor messages to the
+   bottom of the scroll area so a short conversation doesn't leave a wall
+   of empty space above the composer — new content should grow upward,
+   like every other chat UI. */
+.mx-auto.w-full.flex-grow.p-4 {
+  max-width: 720px !important;
+  justify-content: flex-end;
+}
+
+/* ...but the very first screen (just the welcome prompt, nothing sent
+   yet) is a one-message empty state, not a short conversation — bottom-
+   anchoring it makes it look like a layout bug, floating over a blank
+   page. Pin that single message to the top instead; the instant a second
+   message arrives, this stops matching and flex-end above takes back
+   over. */
+.mx-auto.w-full.flex-grow.p-4 > .step:only-child {
+  margin-bottom: auto;
+}
+
+/* Chainlit's built-in "scroll to latest message" button uses the default
+   plain outline-button styling (same color as the page background, barely
+   visible border), which reads as an unstyled, disconnected leftover
+   floating above the composer. Bring it into the muted-surface + single
+   accent language used everywhere else. */
+.absolute.bottom-4.left-0.right-0 > button {
+  background-color: hsl(var(--card));
+  border-color: hsl(var(--border));
+  color: hsl(var(--muted-foreground));
+}
+.absolute.bottom-4.left-0.right-0 > button:hover {
+  background-color: hsl(217.2 91.2% 59.8% / 0.12);
+  border-color: hsl(217.2 91.2% 59.8%);
+  color: hsl(217.2 91.2% 59.8%);
+}

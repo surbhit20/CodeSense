@@ -20,13 +20,11 @@
       graphPanel.style.transform = 'translateX(100%)';
       toggleBtn.style.right = '0';
       toggleBtn.title = 'Show graph';
-      toggleBtn.innerHTML = '&#9664;'; // ◀
       if (appRoot) appRoot.style.marginRight = '0';
     } else {
       graphPanel.style.transform = 'translateX(0)';
       toggleBtn.style.right = PANEL_WIDTH;
       toggleBtn.title = 'Hide graph';
-      toggleBtn.innerHTML = '&#9654;'; // ▶
       if (appRoot) appRoot.style.marginRight = PANEL_WIDTH;
     }
   }
@@ -34,35 +32,32 @@
   function createPanel() {
     if (graphPanel) return;
 
-    // Narrow vertical tab button pinned to the left edge of the panel.
-    // border-right:none makes it look flush against the panel.
+    // Narrow drag-handle strip pinned to the panel's left edge, sitting on
+    // top of the 1px divider line. Visual styling (the grip affordance,
+    // hover/focus states) lives in custom.css — this only sets layout.
     toggleBtn = document.createElement('button');
-    toggleBtn.innerHTML = '&#9654;'; // ▶
+    toggleBtn.className = 'codesense-graph-toggle';
     toggleBtn.title = 'Hide graph';
     toggleBtn.style.cssText = [
       'position:fixed',
       'top:50%',
       'right:' + PANEL_WIDTH,
       'transform:translateY(-50%)',
-      'width:18px',
-      'height:64px',
+      'width:14px',
+      'height:56px',
       'z-index:1001',
-      'background:#2d2d2d',
-      'color:#aaa',
-      'border:1px solid #555',
-      'border-right:none',
-      'border-radius:4px 0 0 4px',
-      'cursor:pointer',
-      'font-size:10px',
       'padding:0',
       'transition:right 0.2s ease',
-      'display:flex',
-      'align-items:center',
-      'justify-content:center',
     ].join(';');
     toggleBtn.addEventListener('click', function () {
       setMinimized(!minimized);
     });
+
+    var grip = document.createElement('span');
+    grip.className = 'codesense-graph-toggle-grip';
+    grip.setAttribute('aria-hidden', 'true');
+    toggleBtn.appendChild(grip);
+
     document.body.appendChild(toggleBtn);
 
     // Graph panel — starts translated off-screen so its first appearance
@@ -121,6 +116,11 @@
       } else {
         sendToIframe(e.data);
       }
+      return;
+    }
+
+    if (e.data && e.data.type === 'setBusy') {
+      sendToIframe(e.data);
       return;
     }
 
