@@ -129,6 +129,29 @@
   margin-left: 0;
 }
 
+/* User messages render through a completely different template than
+   assistant ones (no avatar slot exists in the markup at all — it's not
+   just unset, the <img> isn't there to begin with), so an avatar file
+   under public/avatars/ has nothing to attach to. Fake it with a CSS
+   pseudo-element instead: it lands as the first item in the same flex
+   row as the edit button, and since that button carries `ml-auto`
+   (which is what pushes the whole row — and therefore the bubble after
+   it — to the right), inserting before it sits this avatar alone at the
+   row's left edge, mirroring where the assistant's avatar sits. */
+[data-step-type="user_message"] .flex.flex-row.items-center.gap-1.w-full.group::before {
+  content: '';
+  display: block;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  background-color: hsl(217.2 91.2% 59.8% / 0.35);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='white'%3E%3Ccircle cx='12' cy='8' r='4'/%3E%3Cpath d='M4 20c0-4.5 3.5-7 8-7s8 2.5 8 7'/%3E%3C/svg%3E");
+  background-size: 60%;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
 /* Composer: widen and give it the tall, pronounced pill shape of a
    "landing page" search bar rather than a slim chat input, since on the
    empty screen above it's now the visual anchor of the page. */

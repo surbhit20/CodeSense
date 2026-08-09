@@ -75,10 +75,15 @@ async def _on_chat_start():
     cl.user_session.set("welcome_msg", welcome_msg)
 
 
-async def load_repo(repo_url: str):
+async def load_repo(repo_url: str, user_echo: str | None = None):
     """Clones repo_url and wires up the session — shared by the sample-repo
     button and by typing a URL directly. Guarded by the same busy flag as
-    stream_reply so a second clone can't race an in-flight one."""
+    stream_reply so a second clone can't race an in-flight one.
+
+    user_echo: a button click has no chat bubble of its own the way typing
+    does, so pass the text to show as if the user had typed it themselves.
+    Leave unset when the user actually did type (on_message) — there's
+    already a real bubble for that."""
     if cl.user_session.get("busy"):
         return
 
@@ -93,6 +98,9 @@ async def load_repo(repo_url: str):
         if welcome_msg:
             await welcome_msg.remove()
             cl.user_session.set("welcome_msg", None)
+
+        if user_echo:
+            await cl.Message(content=user_echo, type="user_message").send()
 
         status_msg = await cl.Message(content=f"Cloning `{repo_url}`...").send()
         success = await asyncio.to_thread(clone, repo_url, CLONE_DIR)
@@ -125,19 +133,33 @@ async def load_repo(repo_url: str):
 
 @cl.action_callback("sample_repo")
 async def on_sample_repo(action: cl.Action):
-    await load_repo(SAMPLE_REPO_URL)
+    await load_repo(SAMPLE_REPO_URL, user_echo="Sample this repo!")
 
 
-async def stream_reply(model: LLM, step_name: str, step_type: str, *, filepath=None, prompt=None):
+# Real token-generation speed varies (fast models, network bursts) and can
+# render as an instant wall of text rather than something being "written".
+# A small fixed delay per chunk paces it to a natural reading/typing speed
+# regardless of how fast the tokens actually arrived.
+STREAM_PACE_SECONDS = 0.02
+
+
+async def stream_reply(model: LLM, step_name: str, step_type: str, *, filepath=None, prompt=None, user_echo=None):
     """Streams the LLM's response into a live message, wrapped in a Step
     for the tool-call trace. Guarded by a per-session busy flag so a second
-    request can't run concurrently against the same model/message history."""
+    request can't run concurrently against the same model/message history.
+
+    user_echo: text to show as if the user had typed it — a button click
+    (analyze a file, ask a suggested question) has no chat bubble of its
+    own otherwise, which reads as the assistant replying to nothing."""
     if cl.user_session.get("busy"):
         return
 
     cl.user_session.set("busy", True)
     await cl.send_window_message({"type": "setBusy", "busy": True})
     try:
+        if user_echo:
+            await cl.Message(content=user_echo, type="user_message").send()
+
         async with cl.Step(name=step_name, type=step_type) as step:
             step.input = filepath or prompt
             await step.update()
@@ -171,6 +193,7 @@ async def stream_reply(model: LLM, step_name: str, step_type: str, *, filepath=N
                     await msg.send()
                     first_token = False
                 await msg.stream_token(payload)
+                await asyncio.sleep(STREAM_PACE_SECONDS)
 
             if first_token:
                 await thinking.remove()
@@ -196,7 +219,9 @@ async def on_file_analyze(action: cl.Action):
     cl.user_session.set("node", filepath)
 
     name = filepath.replace(CLONE_DIR + "/", "")
-    await stream_reply(model, f"Analyzing {name}", "tool", filepath=filepath)
+    await stream_reply(
+        model, name, "tool", filepath=filepath, user_echo=f"What is inside `{name}`?"
+    )
 
 
 @cl.on_window_message
@@ -217,7 +242,9 @@ async def on_window_message(message: str):
     cl.user_session.set("node", filepath)
 
     name = filepath.replace(CLONE_DIR + "/", "")
-    await stream_reply(model, f"Analyzing {name}", "tool", filepath=filepath)
+    await stream_reply(
+        model, name, "tool", filepath=filepath, user_echo=f"What is inside `{name}`?"
+    )
 
 
 @cl.action_callback("ask_question")
@@ -228,7 +255,7 @@ async def on_ask_question(action: cl.Action):
         await cl.Message(content="No repository loaded. Please restart the chat.").send()
         return
 
-    await stream_reply(model, question, "llm", prompt=question)
+    await stream_reply(model, question, "llm", prompt=question, user_echo=question)
 
 
 @cl.on_message
