@@ -79,56 +79,6 @@
   justify-content: flex-end;
 }
 
-/* ...but the very first screen (just the welcome prompt, nothing sent
-   yet) is a one-message empty state, not a short conversation —
-   bottom-anchoring it makes it look like a layout bug, floating over a
-   blank page. Match ChatGPT's own landing state instead: shrink the
-   message area to its natural content height (drop flex-grow) and let
-   the shared parent center the whole (message + composer) group as one
-   block in the middle of the viewport. The instant a second message
-   arrives this stops matching, flex-grow comes back, and flex-end above
-   takes over like a normal chat. */
-/* The message list actually sits two flex-grow wrappers deep inside this
-   container (container > .relative.flex-grow.overflow-y-auto > .flex-
-   grow.overflow-y-auto > the message column itself) — zeroing flex-grow
-   only on the innermost one does nothing, since its *parent* still
-   claims all the space one level up. Zero it on the direct child
-   instead; that starves the whole chain below it of the "extra space"
-   flex-grow needs to have any effect. */
-.flex.w-full.h-full.flex-col.relative:has(
-    .mx-auto.w-full.flex-grow.p-4 > .step:only-child
-  ) {
-  justify-content: center;
-}
-.flex.w-full.h-full.flex-col.relative:has(
-    .mx-auto.w-full.flex-grow.p-4 > .step:only-child
-  )
-  > .relative.flex.flex-col.flex-grow.overflow-y-auto {
-  flex-grow: 0;
-}
-
-/* The welcome message itself: same landing-state scope, styled as a
-   centered hero line rather than a normal left-aligned chat bubble —
-   avatar stacked above a large bold heading, button centered below it.
-   Scoped with :has(button) on top of :only-child — the welcome message
-   gets removed outright once the user acts (see app.py's load_repo),
-   but "Cloning `...`..." then briefly becomes the sole child too, and
-   it has no button. Without this qualifier that plain status line would
-   flash at hero size for the instant before a second message arrives. */
-.mx-auto.w-full.flex-grow.p-4 > .step:only-child:has(button) .ai-message {
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-}
-.mx-auto.w-full.flex-grow.p-4 > .step:only-child:has(button) .prose.lg\:prose-xl {
-  font-size: 2rem;
-  line-height: 1.2;
-}
-.mx-auto.w-full.flex-grow.p-4 > .step:only-child:has(button) .-ml-1\.5.flex.items-center.flex-wrap {
-  justify-content: center;
-  margin-left: 0;
-}
-
 /* User messages render through a completely different template than
    assistant ones (no avatar slot exists in the markup at all — it's not
    just unset, the <img> isn't there to begin with), so an avatar file

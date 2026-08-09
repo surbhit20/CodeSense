@@ -7,6 +7,39 @@
 
   var PANEL_WIDTH = '45vw';
 
+  // The composer has no per-state placeholder support server-side (it's a
+  // static translation string), so swap it here instead: an "explore a
+  // codebase" prompt before anything's loaded, back to a generic one once
+  // a repo's graph exists. #chat-input isn't mounted yet when this script
+  // first runs, so wait for it rather than querying once and giving up.
+  var LANDING_PLACEHOLDER = 'Explore this codebase: paste a GitHub link';
+  var LOADED_PLACEHOLDER = 'Ask a question about this repo…';
+
+  function setComposerPlaceholder(text) {
+    var el = document.getElementById('chat-input');
+    if (el) el.setAttribute('placeholder', text);
+  }
+
+  function whenComposerReady(cb) {
+    var el = document.getElementById('chat-input');
+    if (el) {
+      cb(el);
+      return;
+    }
+    var observer = new MutationObserver(function () {
+      var el = document.getElementById('chat-input');
+      if (el) {
+        observer.disconnect();
+        cb(el);
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
+
+  whenComposerReady(function () {
+    setComposerPlaceholder(LANDING_PLACEHOLDER);
+  });
+
   function sendToIframe(data) {
     if (graphIframe && graphIframe.contentWindow) {
       graphIframe.contentWindow.postMessage(data, '*');
@@ -114,6 +147,7 @@
 
   window.addEventListener('message', function (e) {
     if (e.data && e.data.type === 'initGraph') {
+      setComposerPlaceholder(LOADED_PLACEHOLDER);
       if (!graphPanel) {
         pendingData = e.data;
         createPanel();
