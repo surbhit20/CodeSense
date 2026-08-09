@@ -48,18 +48,26 @@ FAQ_QUESTIONS = [
 # monorepo produces (see the buck2 graph-scalability fix) — not a
 # ranking, just repos most people will recognize by name.
 STARTER_REPOS = [
-    ("Flask", "Python web framework", "https://github.com/pallets/flask"),
-    ("Requests", "Python HTTP library", "https://github.com/psf/requests"),
-    ("nanoGPT", "Minimal GPT training/inference", "https://github.com/karpathy/nanoGPT"),
-    ("Express", "Node.js web framework", "https://github.com/expressjs/express"),
+    "https://github.com/pallets/flask",
+    "https://github.com/psf/requests",
+    "https://github.com/karpathy/nanoGPT",
+    "https://github.com/expressjs/express",
 ]
+
+
+def _owner_repo(repo_url: str) -> str:
+    """"owner/repo" slug from a GitHub URL — recognizable at a glance,
+    unlike a project's marketing name (not everyone knows "nanoGPT" is
+    karpathy's), and it doubles as a preview of what you're about to type."""
+    owner, repo = repo_url.rstrip("/").split("/")[-2:]
+    return f"{owner}/{repo}"
 
 
 @cl.set_starters
 async def set_starters():
     return [
-        cl.Starter(label=f"{name} — {desc}", message=url)
-        for name, desc, url in STARTER_REPOS
+        cl.Starter(label=f"Explore {_owner_repo(url)}", message=url)
+        for url in STARTER_REPOS
     ]
 
 
@@ -121,15 +129,11 @@ async def load_repo(repo_url: str):
     try:
         cl.user_session.set("awaiting_repo", False)
 
-        status_msg = await cl.Message(content=f"Cloning `{repo_url}`...").send()
         success = await asyncio.to_thread(clone, repo_url, CLONE_DIR)
         if not success:
             await cl.Message(content="Failed to clone. Check the URL and try again.").send()
             cl.user_session.set("awaiting_repo", True)
             return
-
-        status_msg.content = f"Successfully cloned `{repo_url}`."
-        await status_msg.update()
 
         code_tree = Tree(CLONE_DIR, display_name=repo_display_name(repo_url))
         model = LLM(codeTree=code_tree)

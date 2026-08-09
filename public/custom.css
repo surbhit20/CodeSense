@@ -20,11 +20,13 @@
    browser's default focus ring on click, which floats in the middle of
    the chat/graph split looking like an accidental leftover rather than a
    deliberate control. Suppress that entirely and draw our own grip that
-   stays invisible until hovered or focused. */
+   stays invisible until hovered or focused. Doubles as a drag-to-resize
+   handle (see custom.js) — ew-resize over plain pointer, since dragging
+   it is the more discoverable of its two jobs. */
 .codesense-graph-toggle {
   background: transparent;
   border: none;
-  cursor: pointer;
+  cursor: ew-resize;
   outline: none;
   display: flex;
   align-items: center;
@@ -48,7 +50,8 @@
   border-radius: 4px;
 }
 
-/* File/action buttons ("requirements.txt", "app.py", ...) render as plain
+/* File/action buttons ("requirements.txt", "app.py", ...) and the FAQ
+   suggestion buttons ("What is this repo about?", ...) render as plain
    ghost buttons — no fill, no border, nothing to signal they're clickable
    until you're already hovering. Give them a surface and a border so they
    read as chips, plus a small gap now that they have visible edges. */
@@ -59,12 +62,27 @@
 .-ml-1\.5.flex.items-center.flex-wrap > button {
   background-color: hsl(var(--card));
   border: 1px solid hsl(var(--border) / 0.7);
-  border-radius: 6px;
 }
 .-ml-1\.5.flex.items-center.flex-wrap > button:hover {
   background-color: hsl(217.2 91.2% 59.8% / 0.12);
   border-color: hsl(217.2 91.2% 59.8% / 0.5);
   color: hsl(217.2 91.2% 59.8%);
+}
+/* Chainlit auto-adds a "copy" icon button to every action row — redundant
+   here since these are single-tap suggestion/file chips, not text worth
+   copying, and it read as a stray unlabeled square at the front of the
+   row. */
+.-ml-1\.5.flex.items-center.flex-wrap > button:has(.lucide-copy) {
+  display: none;
+}
+/* The suggestion/file chips themselves (the ones Chainlit gives an `id`,
+   as opposed to its own copy button above) — smaller and fully rounded so
+   they read as lightweight pills, not full-size buttons. */
+.-ml-1\.5.flex.items-center.flex-wrap > button[id] {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 9999px;
+  font-size: 0.8rem;
 }
 
 /* Message column: Chainlit drops its own max-width class once the

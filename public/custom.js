@@ -6,6 +6,8 @@
   let minimized = false;
 
   var PANEL_WIDTH = '45vw';
+  var MIN_PANEL_WIDTH = 280; // px
+  var MAX_PANEL_WIDTH_RATIO = 0.85; // fraction of viewport width
 
   // The composer has no per-state placeholder support server-side (it's a
   // static translation string), so swap it here instead: an "explore a
@@ -62,6 +64,82 @@
     }
   }
 
+  // Applies a new panel width (from a drag) everywhere it's referenced.
+  // Only takes effect visually while the panel isn't minimized — dragging
+  // the handle only makes sense once the panel is actually showing, and
+  // setMinimized() re-reads PANEL_WIDTH itself when restoring.
+  function setPanelWidth(px) {
+    PANEL_WIDTH = px + 'px';
+    if (!graphPanel) return;
+    graphPanel.style.width = PANEL_WIDTH;
+    if (!minimized) {
+      toggleBtn.style.right = PANEL_WIDTH;
+      var appRoot = document.getElementById('root');
+      if (appRoot) appRoot.style.marginRight = PANEL_WIDTH;
+    }
+  }
+
+  // Drag-to-resize on the same handle that also toggles minimize on a
+  // plain click — a mousedown+move past a small threshold commits to a
+  // resize (and suppresses the click's toggle), anything smaller is just
+  // a click.
+  function initResize(handle) {
+    var dragging = false;
+    var moved = false;
+    var startX = 0;
+    var DRAG_THRESHOLD = 4; // px
+
+    handle.addEventListener('mousedown', function (e) {
+      if (minimized) return; // nothing to resize while hidden
+      dragging = true;
+      moved = false;
+      startX = e.clientX;
+      // Transitions fight a live drag (each intermediate width tries to
+      // animate toward the next), and there's no reason to smooth-scroll
+      // toward a position that's about to be immediately overridden by
+      // the next mousemove anyway.
+      graphPanel.style.transition = 'none';
+      toggleBtn.style.transition = 'none';
+      var appRoot = document.getElementById('root');
+      if (appRoot) appRoot.style.transition = 'none';
+      document.body.style.cursor = 'ew-resize';
+      document.body.style.userSelect = 'none';
+      // Shrinking the panel drags the cursor right, over the iframe's own
+      // document — without this, mousemove targets flip to the iframe the
+      // instant the cursor crosses into it, and this (parent) document
+      // stops receiving them entirely, stalling the drag.
+      if (graphIframe) graphIframe.style.pointerEvents = 'none';
+      e.preventDefault();
+    });
+
+    window.addEventListener('mousemove', function (e) {
+      if (!dragging) return;
+      if (Math.abs(e.clientX - startX) > DRAG_THRESHOLD) moved = true;
+      var raw = window.innerWidth - e.clientX;
+      var min = MIN_PANEL_WIDTH;
+      var max = window.innerWidth * MAX_PANEL_WIDTH_RATIO;
+      setPanelWidth(Math.min(Math.max(raw, min), max));
+    });
+
+    window.addEventListener('mouseup', function () {
+      if (!dragging) return;
+      dragging = false;
+      graphPanel.style.transition = 'transform 0.2s ease';
+      toggleBtn.style.transition = 'right 0.2s ease';
+      var appRoot = document.getElementById('root');
+      if (appRoot) appRoot.style.transition = 'margin-right 0.2s ease';
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      if (graphIframe) graphIframe.style.pointerEvents = '';
+      // A real drag shouldn't also fire the click-to-minimize handler —
+      // capture-phase click listener below eats exactly one click when
+      // this is true.
+      if (moved) suppressNextClick = true;
+    });
+  }
+
+  var suppressNextClick = false;
+
   function createPanel() {
     if (graphPanel) return;
 
@@ -82,9 +160,16 @@
       'padding:0',
       'transition:right 0.2s ease',
     ].join(';');
-    toggleBtn.addEventListener('click', function () {
+    toggleBtn.addEventListener('click', function (e) {
+      if (suppressNextClick) {
+        suppressNextClick = false;
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
       setMinimized(!minimized);
     });
+    initResize(toggleBtn);
 
     var grip = document.createElement('span');
     grip.className = 'codesense-graph-toggle-grip';

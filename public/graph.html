@@ -5,12 +5,18 @@
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: #1a1a1a; overflow: hidden; font-family: sans-serif; }
-    #graph { width: 100vw; height: 100vh; transition: opacity 0.15s ease; }
-    #graph.busy { opacity: 0.5; pointer-events: none; }
+    #graph { width: 100vw; height: 100vh; }
+    /* Only a file click needs to wait on the backend (it kicks off an LLM
+       analysis) — expanding/collapsing folders and revealing more nodes are
+       purely local DataSet edits, so "busy" must never block those or the
+       whole graph reads as frozen for as long as a response streams. This
+       is now just a subtle "something's happening elsewhere" cue, not a
+       full interaction lock (see the click handler below). */
+    #graph.busy { opacity: 0.85; }
     #hint {
-      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-      display: flex; flex-direction: column; align-items: center; gap: 10px;
-      color: #6b7280; font-size: 13px; text-align: center;
+      position: absolute; bottom: 14px; left: 14px;
+      display: flex; flex-direction: row; align-items: center; gap: 8px;
+      color: #6b7280; font-size: 12px; text-align: left;
       pointer-events: none; transition: opacity 0.2s ease;
     }
     #hint.hidden { opacity: 0; }
@@ -39,7 +45,7 @@
 <body>
   <div id="graph"></div>
   <div id="hint">
-    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
       <path d="M9 3v4a1 1 0 0 1-1 1H4" stroke-linecap="round" stroke-linejoin="round"/>
       <path d="M9 3h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9M9 3L4 8v11a2 2 0 0 0 2 2h5" stroke-linecap="round" stroke-linejoin="round"/>
       <path d="M13 13h4M13 17h4" stroke-linecap="round"/>
@@ -432,16 +438,21 @@
         options
       );
       network.on('click', (params) => {
-        if (busy || !params.nodes.length) return;
+        if (!params.nodes.length) return;
         // The empty-state hint only used to hide on a *file* click — expand
         // a folder instead (the far more common first action) and it sat
-        // there, centered, for the rest of the session, drawn on top of
-        // whatever the graph grew into underneath it. Any click on the
-        // graph means the user found it; dismiss it right away regardless
-        // of what kind of node they hit.
+        // there, drawn on top of whatever the graph grew into underneath
+        // it. Any click on the graph means the user found it; dismiss it
+        // right away regardless of what kind of node they hit.
         document.getElementById('hint').classList.add('hidden');
         const nodeId = params.nodes[0];
 
+        // Expanding/collapsing a folder or revealing "+more" is a purely
+        // local DataSet edit — it doesn't touch the backend at all, so it
+        // must keep working even while a *previous* file's analysis is
+        // still streaming. Only actually starting a new analysis needs to
+        // wait on `busy`; gating the whole click handler on it made the
+        // graph read as entirely frozen for the length of every response.
         if (nodeId.startsWith('__more__:')) {
           showChildren(nodeId.slice('__more__:'.length));
           fitWhenReady(true);
@@ -454,6 +465,13 @@
           toggleDir(nodeId);
           return;
         }
+        // A file click, on the other hand, asks Python to kick off an LLM
+        // analysis — silently drop it while one's already in flight rather
+        // than queuing it up to run right after (see app.py's own `busy`
+        // guard for the other half of this: it's a belt-and-suspenders
+        // check against clicks that squeak through here before `busy`
+        // finishes propagating back down from a click a moment earlier).
+        if (busy) return;
         window.parent.postMessage({ type: 'nodeClick', id: nodeId }, '*');
       });
 
