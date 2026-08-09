@@ -177,9 +177,17 @@ async def stream_reply(model: LLM, step_name: str, step_type: str, *, filepath=N
         # That nested the visible answer text inside this step's collapsible
         # dropdown. Explicit parent_id on the tool sub-steps below still
         # nests those on purpose, for the chain-of-thought trace.
+        #
+        # Sending is deferred to the end (once the whole exchange is
+        # done) rather than done here — sending it now would show a
+        # completed-looking "Used {name}" row alongside the still-live
+        # "Reading {file}…" line below it, which reads as two rows for
+        # one in-progress action. Step.id is assigned at construction
+        # (a local uuid4), so nested tool sub-steps can already
+        # reference it as their parent_id before it's sent.
         step = cl.Step(name=step_name, type=step_type)
         step.input = filepath or prompt
-        await step.send()
+        pending_tool_steps = []
 
         # The first completion call often just decides to call the
         # retriever tool and streams no visible content — without this,
@@ -203,9 +211,10 @@ async def stream_reply(model: LLM, step_name: str, step_type: str, *, filepath=N
                 # final input/output. Named after the file alone, not
                 # "Reading X" — Chainlit's collapsed label is always
                 # "Used {name}", so a verb in the name doubles up.
+                # Queued rather than sent immediately — see note above.
                 tool_step = cl.Step(name=short_name, type="tool", parent_id=step.id)
                 tool_step.output = "Fetched"
-                await tool_step.send()
+                pending_tool_steps.append(tool_step)
                 continue
 
             if first_token:
@@ -221,7 +230,12 @@ async def stream_reply(model: LLM, step_name: str, step_type: str, *, filepath=N
 
         await msg.update()
         step.output = msg.content
-        await step.update()
+        # Sent now, after the fact, rather than up front — see the note
+        # where `step` is constructed. Parent before children so the
+        # nested chain-of-thought trace attaches correctly.
+        await step.send()
+        for tool_step in pending_tool_steps:
+            await tool_step.send()
     finally:
         cl.user_session.set("busy", False)
         await cl.send_window_message({"type": "setBusy", "busy": False})
