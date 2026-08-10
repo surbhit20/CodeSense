@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
   <rect width="24" height="24" rx="6" fill="#D97757"/>
-  <path d="M12 6l3.6 12h-2.1l-.75-2.6H11.2l-.75 2.6H8.35L12 6zm0 3.4l-1.2 4.1h2.4L12 9.4z" fill="#fff"/>
+  <image x="6.24" y="6.24" width="11.52" height="11.52" href="data:image/svg+xml;base64,PHN2ZyB2ZXJzaW9uPSIxLjEiIGlkPSJMYXllcl8xIiB4bWxuczp4PSJuc19leHRlbmQ7IiB4bWxuczppPSJuc19haTsiIHhtbG5zOmdyYXBoPSJuc19ncmFwaHM7IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHhtbG5zOnhsaW5rPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5L3hsaW5rIiB4PSIwcHgiIHk9IjBweCIgdmlld0JveD0iMCAwIDkyLjIgNjUiIHN0eWxlPSJlbmFibGUtYmFja2dyb3VuZDpuZXcgMCAwIDkyLjIgNjU7IiB4bWw6c3BhY2U9InByZXNlcnZlIj4KIDxzdHlsZSB0eXBlPSJ0ZXh0L2NzcyI+CiAgLnN0MHtmaWxsOiNGRkZGRkY7fQogPC9zdHlsZT4KIDxtZXRhZGF0YT4KICA8c2Z3IHhtbG5zPSJuc19zZnc7Ij4KICAgPHNsaWNlcz4KICAgPC9zbGljZXM+CiAgIDxzbGljZVNvdXJjZUJvdW5kcyBib3R0b21MZWZ0T3JpZ2luPSJ0cnVlIiBoZWlnaHQ9IjY1IiB3aWR0aD0iOTIuMiIgeD0iLTQzLjciIHk9Ii05OCI+CiAgIDwvc2xpY2VTb3VyY2VCb3VuZHM+CiAgPC9zZnc+CiA8L21ldGFkYXRhPgogPHBhdGggY2xhc3M9InN0MCIgZD0iTTY2LjUsMEg1Mi40bDI1LjcsNjVoMTQuMUw2Ni41LDB6IE0yNS43LDBMMCw2NWgxNC40bDUuMy0xMy42aDI2LjlMNTEuOCw2NWgxNC40TDQwLjUsMEM0MC41LDAsMjUuNywwLDI1LjcsMHoKCSBNMjQuMywzOS4zbDguOC0yMi44bDguOCwyMi44SDI0LjN6Ij4KIDwvcGF0aD4KPC9zdmc+"/>
 </svg>
