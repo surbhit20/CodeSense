@@ -5,7 +5,6 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import chainlit as cl
-from chainlit.input_widget import Select
 from chainlit.server import app as chainlit_app
 from src.treeparser import Tree
 from src.LLM import LLM
@@ -47,17 +46,17 @@ FAQ_QUESTIONS = [
 # Cosmetic only — two recognizable flagship/mini models per major provider,
 # so the picker doesn't read as an Anthropic-only afterthought. Whichever
 # one gets picked, every request still goes to the one model LLM.py is
-# actually wired up to (see on_settings_update); there's no per-provider
-# API integration behind this.
-MODEL_CHOICES = [
-    "Claude Opus 5",
-    "Claude Sonnet 5",
-    "GPT-5.1",
-    "GPT-5.1 mini",
-    "Grok 4",
-    "Grok 4 mini",
-    "Gemini 3 Pro",
-    "Gemini 3 Flash",
+# actually wired up to (see on_message); there's no per-provider API
+# integration behind this.
+MODEL_OPTIONS = [
+    ("claude-opus-5", "Claude Opus 5", "/public/model-icons/anthropic.svg"),
+    ("claude-sonnet-5", "Claude Sonnet 5", "/public/model-icons/anthropic.svg"),
+    ("gpt-5.1", "GPT-5.1", "/public/model-icons/openai.svg"),
+    ("gpt-5.1-mini", "GPT-5.1 mini", "/public/model-icons/openai.svg"),
+    ("grok-4", "Grok 4", "/public/model-icons/xai.svg"),
+    ("grok-4-mini", "Grok 4 mini", "/public/model-icons/xai.svg"),
+    ("gemini-3-pro", "Gemini 3 Pro", "/public/model-icons/gemini.svg"),
+    ("gemini-3-flash", "Gemini 3 Flash", "/public/model-icons/gemini.svg"),
 ]
 
 # A handful of well-known repos, picked for being small/clean enough to
@@ -132,26 +131,23 @@ async def _on_chat_start():
     # custom.js), so the landing state stays message-free.
     cl.user_session.set("awaiting_repo", True)
 
-    # ChatSettings itself doesn't touch the starters/landing-state check
-    # above — it lives in the settings sidebar, not the message thread.
-    await cl.ChatSettings(
-        [
-            Select(
-                id="model",
-                label="Model",
-                values=MODEL_CHOICES,
-                initial_index=0,
-            )
-        ]
-    ).send()
-
-
-@cl.on_settings_update
-async def on_settings_update(settings):
-    # Cosmetic selector — see MODEL_CHOICES. Stored only so it could be
-    # surfaced in the UI later; it never changes which model actually
-    # answers (that's fixed in LLM.py).
-    cl.user_session.set("selected_model_label", settings.get("model"))
+    # Modes render as a picker directly in the composer (unlike
+    # ChatSettings, which is tucked behind a separate gear-icon dialog) —
+    # a better fit for something meant to be seen and switched often.
+    # There's no on-change hook for modes; the current pick only arrives
+    # attached to the next cl.Message the user actually sends (see
+    # on_message), so nothing needs wiring up here beyond registering
+    # the options.
+    await cl.context.emitter.set_modes([
+        cl.Mode(
+            id="model",
+            name="Model",
+            options=[
+                cl.ModeOption(id=option_id, name=name, icon=icon, default=(i == 0))
+                for i, (option_id, name, icon) in enumerate(MODEL_OPTIONS)
+            ],
+        )
+    ])
 
 
 async def load_repo(repo_url: str):
@@ -341,6 +337,13 @@ async def on_ask_question(action: cl.Action):
 
 @cl.on_message
 async def on_message(message: cl.Message):
+    # The current mode selection only ever arrives attached to a message
+    # like this one — there's no separate on-change event for modes.
+    # Cosmetic only (see MODEL_OPTIONS): stored for potential future
+    # display, never changes which model actually answers.
+    if message.modes:
+        cl.user_session.set("selected_model_id", message.modes.get("model"))
+
     if cl.user_session.get("awaiting_repo"):
         await load_repo(message.content.strip())
         return
