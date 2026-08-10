@@ -20,11 +20,13 @@
    browser's default focus ring on click, which floats in the middle of
    the chat/graph split looking like an accidental leftover rather than a
    deliberate control. Suppress that entirely and draw our own grip that
-   stays invisible until hovered or focused. */
+   stays invisible until hovered or focused. Doubles as a drag-to-resize
+   handle (see custom.js) — ew-resize over plain pointer, since dragging
+   it is the more discoverable of its two jobs. */
 .codesense-graph-toggle {
   background: transparent;
   border: none;
-  cursor: pointer;
+  cursor: ew-resize;
   outline: none;
   display: flex;
   align-items: center;
@@ -48,7 +50,8 @@
   border-radius: 4px;
 }
 
-/* File/action buttons ("requirements.txt", "app.py", ...) render as plain
+/* File/action buttons ("requirements.txt", "app.py", ...) and the FAQ
+   suggestion buttons ("What is this repo about?", ...) render as plain
    ghost buttons — no fill, no border, nothing to signal they're clickable
    until you're already hovering. Give them a surface and a border so they
    read as chips, plus a small gap now that they have visible edges. */
@@ -59,12 +62,27 @@
 .-ml-1\.5.flex.items-center.flex-wrap > button {
   background-color: hsl(var(--card));
   border: 1px solid hsl(var(--border) / 0.7);
-  border-radius: 6px;
 }
 .-ml-1\.5.flex.items-center.flex-wrap > button:hover {
   background-color: hsl(217.2 91.2% 59.8% / 0.12);
   border-color: hsl(217.2 91.2% 59.8% / 0.5);
   color: hsl(217.2 91.2% 59.8%);
+}
+/* Chainlit auto-adds a "copy" icon button to every action row — redundant
+   here since these are single-tap suggestion/file chips, not text worth
+   copying, and it read as a stray unlabeled square at the front of the
+   row. */
+.-ml-1\.5.flex.items-center.flex-wrap > button:has(.lucide-copy) {
+  display: none;
+}
+/* The suggestion/file chips themselves (the ones Chainlit gives an `id`,
+   as opposed to its own copy button above) — smaller and fully rounded so
+   they read as lightweight pills, not full-size buttons. */
+.-ml-1\.5.flex.items-center.flex-wrap > button[id] {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 9999px;
+  font-size: 0.8rem;
 }
 
 /* Message column: Chainlit drops its own max-width class once the
@@ -79,32 +97,27 @@
   justify-content: flex-end;
 }
 
-/* ...but the very first screen (just the welcome prompt, nothing sent
-   yet) is a one-message empty state, not a short conversation —
-   bottom-anchoring it makes it look like a layout bug, floating over a
-   blank page. Match ChatGPT's own landing state instead: shrink the
-   message area to its natural content height (drop flex-grow) and let
-   the shared parent center the whole (message + composer) group as one
-   block in the middle of the viewport. The instant a second message
-   arrives this stops matching, flex-grow comes back, and flex-end above
-   takes over like a normal chat. */
-/* The message list actually sits two flex-grow wrappers deep inside this
-   container (container > .relative.flex-grow.overflow-y-auto > .flex-
-   grow.overflow-y-auto > the message column itself) — zeroing flex-grow
-   only on the innermost one does nothing, since its *parent* still
-   claims all the space one level up. Zero it on the direct child
-   instead; that starves the whole chain below it of the "extra space"
-   flex-grow needs to have any effect. */
-.flex.w-full.h-full.flex-col.relative:has(
-    .mx-auto.w-full.flex-grow.p-4 > .step:only-child
-  ) {
-  justify-content: center;
-}
-.flex.w-full.h-full.flex-col.relative:has(
-    .mx-auto.w-full.flex-grow.p-4 > .step:only-child
-  )
-  > .relative.flex.flex-col.flex-grow.overflow-y-auto {
-  flex-grow: 0;
+/* User messages render through a completely different template than
+   assistant ones (no avatar slot exists in the markup at all — it's not
+   just unset, the <img> isn't there to begin with), so an avatar file
+   under public/avatars/ has nothing to attach to. Fake it with a CSS
+   pseudo-element instead. The row is [edit button, bubble], and the
+   edit button's `ml-auto` is what pushes that whole pair to the right —
+   appending this *after* the bubble (not before it) keeps it inside
+   that pushed-right group, landing it flush against the bubble's right
+   edge instead of stranded alone at the far-left of the row. */
+[data-step-type="user_message"] .flex.flex-row.items-center.gap-1.w-full.group::after {
+  content: '';
+  display: block;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  background-color: hsl(217.2 91.2% 59.8% / 0.35);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='white'%3E%3Ccircle cx='12' cy='8' r='4'/%3E%3Cpath d='M4 20c0-4.5 3.5-7 8-7s8 2.5 8 7'/%3E%3C/svg%3E");
+  background-size: 60%;
+  background-position: center;
+  background-repeat: no-repeat;
 }
 
 /* Composer: widen and give it the tall, pronounced pill shape of a

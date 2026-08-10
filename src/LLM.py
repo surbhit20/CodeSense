@@ -28,7 +28,12 @@ class LLM():
         completion is re-streamed automatically)."""
 
         if filepath:
-            self._append('user', prompts.GENERATION_PROMPT.format(filepath=filepath))
+            # Callers pass the real absolute path (needed for os-level
+            # checks on their end) — show the model the relative display
+            # path instead, so it never sees (and can't echo back) the
+            # local clone directory.
+            display_path = self.codeTree.to_display_path(filepath)
+            self._append('user', prompts.GENERATION_PROMPT.format(filepath=display_path))
 
         if prompt:
             self._append('user', prompt)
