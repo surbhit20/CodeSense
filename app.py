@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import chainlit as cl
+from chainlit.input_widget import Select
 from chainlit.server import app as chainlit_app
 from src.treeparser import Tree
 from src.LLM import LLM
@@ -41,6 +42,22 @@ FAQ_QUESTIONS = [
     "What's the overall architecture?",
     "How do I run this project?",
     "What are the main dependencies?",
+]
+
+# Cosmetic only — two recognizable flagship/mini models per major provider,
+# so the picker doesn't read as an Anthropic-only afterthought. Whichever
+# one gets picked, every request still goes to the one model LLM.py is
+# actually wired up to (see on_settings_update); there's no per-provider
+# API integration behind this.
+MODEL_CHOICES = [
+    "Claude Opus 5",
+    "Claude Sonnet 5",
+    "GPT-5.1",
+    "GPT-5.1 mini",
+    "Grok 4",
+    "Grok 4 mini",
+    "Gemini 3 Pro",
+    "Gemini 3 Flash",
 ]
 
 # A handful of well-known repos, picked for being small/clean enough to
@@ -114,6 +131,27 @@ async def _on_chat_start():
     # codebase" prompt lives in the composer placeholder instead (see
     # custom.js), so the landing state stays message-free.
     cl.user_session.set("awaiting_repo", True)
+
+    # ChatSettings itself doesn't touch the starters/landing-state check
+    # above — it lives in the settings sidebar, not the message thread.
+    await cl.ChatSettings(
+        [
+            Select(
+                id="model",
+                label="Model",
+                values=MODEL_CHOICES,
+                initial_index=0,
+            )
+        ]
+    ).send()
+
+
+@cl.on_settings_update
+async def on_settings_update(settings):
+    # Cosmetic selector — see MODEL_CHOICES. Stored only so it could be
+    # surfaced in the UI later; it never changes which model actually
+    # answers (that's fixed in LLM.py).
+    cl.user_session.set("selected_model_label", settings.get("model"))
 
 
 async def load_repo(repo_url: str):
