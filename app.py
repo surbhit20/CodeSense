@@ -82,7 +82,7 @@ def _owner_repo(repo_url: str) -> str:
 @cl.set_starters
 async def set_starters():
     return [
-        cl.Starter(label=f"Explore {_owner_repo(url)}", message=url)
+        cl.Starter(label=f"Explore {_owner_repo(url)}", message=url, icon="/public/github.svg")
         for url in STARTER_REPOS
     ]
 
